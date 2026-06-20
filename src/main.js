@@ -20,6 +20,7 @@ import { RitualPercussion } from "./audio/engines/ritual-percussion.js?v=2026052
 import { createProcessingBridge } from "./net/processing-bridge.js?v=20260524-cellnoise-02";
 
 const SOURCE_PRESETS = [
+  { label: "spiral-phyllotaxis.svg", url: "./assets/spiral-phyllotaxis.svg" },
   { label: "cell2.vector.svg", url: "./assets/cell2.vector.svg" },
   { label: "cells_lithocyst_001.svg", url: "./assets/cells_lithocyst_001.svg" },
 ];
@@ -151,9 +152,10 @@ const state = {
   aggregate: null,
   breath: { phase: 0, complexity: 0, energy: 0 },
   glitch: createGlitch(),
-  rd: createReactionDiffusion(),
-  wave: createWaveField(),
+  rd: createReactionDiffusion({ size: 256 }),
+  wave: createWaveField({ size: 256 }),
   fieldKind: "rd", // which natural function drives the nature field: "rd" | "wave"
+  morphPhase: 0, // slow spin of the source plant in the generative composite
   colorizer: createFieldColorizer(),
   evolveCanvas: null,
   colorCanvas: null,
@@ -764,23 +766,63 @@ function ensureSource() {
     state.colorCanvas.width = state.source.sourceCanvas.width;
     state.colorCanvas.height = state.source.sourceCanvas.height;
   }
+  // morphCanvas = the slowly spinning/breathing plant; displayCanvas = the final
+  // composite (plant base + translucent evolving field) shown on the scan stage.
+  for (const key of ["morphCanvas", "displayCanvas"]) {
+    if (!state[key]) {
+      state[key] = document.createElement("canvas");
+      state[key].width = state.source.sourceCanvas.width;
+      state[key].height = state.source.sourceCanvas.height;
+    }
+  }
 }
 
 const NATURE_PALETTE = { coral: "coral", mitosis: "moss", waves: "ocean" };
 
-/** The image shown on the scan stage: the organically colorized reaction-
- * diffusion field when nature is on, otherwise the pristine plant source. */
+/** The image shown on the scan stage. With nature off it is the pristine plant.
+ * With nature on it is a generative composite: the plant slowly spins and
+ * breathes underneath, and the high-res evolving field is colourised and
+ * screened over it translucently so the source shows through and keeps morphing
+ * — a living image rather than a flat replacement. */
 function displaySource() {
-  if (state.natureOn && state.evolveCanvas && state.colorCanvas) {
-    const palette = NATURE_PALETTE[elements.naturePreset?.value ?? "coral"] ?? "coral";
-    // Colour vividness breathes with the field and brightens with the solar
-    // wind — the natural palette pulses on the same wave as everything else.
-    const breathWave = Math.sin(state.breath.phase) * 0.5 + 0.5;
-    const intensity = clamp01(0.5 + 0.3 * breathWave * state.breath.complexity + 0.3 * state.earth.solarWind);
-    state.colorizer.colorize(state.evolveCanvas, state.colorCanvas, { palette, intensity });
-    return state.colorCanvas;
+  if (!(state.natureOn && state.evolveCanvas && state.colorCanvas && state.displayCanvas)) {
+    return state.source.sourceCanvas;
   }
-  return state.source.sourceCanvas;
+  const base = state.source.sourceCanvas;
+  const w = state.displayCanvas.width;
+  const h = state.displayCanvas.height;
+  const breathWave = Math.sin(state.breath.phase) * 0.5 + 0.5;
+
+  // 1. Morph the plant: slow spin + gentle breathing zoom about the centre.
+  const mctx = state.morphCanvas.getContext("2d");
+  const zoom = 1 + 0.05 * breathWave * (0.4 + state.breath.complexity);
+  mctx.save();
+  mctx.fillStyle = "#04080a";
+  mctx.fillRect(0, 0, w, h);
+  mctx.translate(w / 2, h / 2);
+  mctx.rotate(state.morphPhase);
+  mctx.scale(zoom, zoom);
+  mctx.drawImage(base, -w / 2, -h / 2, w, h);
+  mctx.restore();
+
+  // 2. Colourise the evolving field; vividness breathes + brightens on solar wind.
+  const palette = NATURE_PALETTE[elements.naturePreset?.value ?? "coral"] ?? "coral";
+  const intensity = clamp01(0.5 + 0.3 * breathWave * state.breath.complexity + 0.3 * state.earth.solarWind);
+  state.colorizer.colorize(state.evolveCanvas, state.colorCanvas, { palette, intensity });
+
+  // 3. Composite: spinning plant base, then the field screened over it so the
+  //    plant glows through. Overlay opacity breathes between subtle and vivid.
+  const dctx = state.displayCanvas.getContext("2d");
+  dctx.save();
+  dctx.globalCompositeOperation = "source-over";
+  dctx.globalAlpha = 1;
+  dctx.clearRect(0, 0, w, h);
+  dctx.drawImage(state.morphCanvas, 0, 0, w, h);
+  dctx.globalCompositeOperation = "screen";
+  dctx.globalAlpha = clamp01(0.3 + 0.28 * breathWave * (0.5 + 0.5 * state.breath.complexity));
+  dctx.drawImage(state.colorCanvas, 0, 0, w, h);
+  dctx.restore();
+  return state.displayCanvas;
 }
 
 /** The canvas the scans read: the live reaction-diffusion field when the
@@ -971,6 +1013,9 @@ function stepScans(dt) {
   if (state.natureOn) activeField().nudge(aggregate);
   state.aggregate = aggregate;
   advanceBreath(aggregate, dt);
+  // The plant in the generative composite turns slowly, a touch faster when the
+  // field is energetic — the spiral itself becomes a living, evolving image.
+  state.morphPhase += dt * (0.05 + 0.12 * state.breath.energy);
   sendProcessingFrame(mappedFeatures, aggregate);
   renderStats(mappedFeatures, aggregate);
 }
