@@ -1297,9 +1297,37 @@ function renderFrame() {
 
   ctx.restore();
 
+  // Organic skin: the chassis breathes with the same wave as the field.
+  reflectOrganicSkin();
+
   // Particles + afterimage + glitch live on the overlay field canvas so they
   // can accumulate trails independently of the geometry redraw beneath.
   renderField();
+}
+
+// Hue the whole instrument by the live nature palette; default to the lime
+// accent when the field is off. Drives the organic skin's tint.
+const FIELD_RGB = {
+  coral: "255, 138, 120",
+  moss: "159, 209, 78",
+  ocean: "90, 200, 232",
+  sand: "232, 200, 122",
+};
+
+/** Push the live breath + field colour into CSS custom properties so the whole
+ * chassis (brand glow, module ticks, canvas frame, active mode) pulses on the
+ * same wave as the geometry — the pro-gear skeleton with a living skin. */
+function reflectOrganicSkin() {
+  const root = document.documentElement;
+  const breathWave = Math.sin(state.breath.phase) * 0.5 + 0.5;
+  // Depth scales with smoothed complexity so a quiet field barely breathes.
+  const breath = clamp01(0.18 + breathWave * (0.35 + 0.6 * state.breath.complexity));
+  root.style.setProperty("--breath", breath.toFixed(3));
+  root.style.setProperty("--energy", clamp01(state.breath.energy).toFixed(3));
+  const palette = state.natureOn
+    ? (NATURE_PALETTE[elements.naturePreset?.value ?? "coral"] ?? "coral")
+    : null;
+  root.style.setProperty("--field-rgb", palette ? (FIELD_RGB[palette] ?? FIELD_RGB.moss) : "208, 255, 90");
 }
 
 function renderField() {
