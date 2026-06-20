@@ -11,6 +11,7 @@ import { bindRange, bindSelect, bindButtonGroup, bindButton, bindFileInput } fro
 import { spawnFromScan, stepParticles, drawParticles } from "./visual/field-particles.js?v=20260524-cellnoise-02";
 import { createGlitch } from "./visual/glitch.js?v=20260524-cellnoise-02";
 import { createReactionDiffusion } from "./visual/reaction-diffusion.js?v=20260524-cellnoise-02";
+import { createWaveField } from "./visual/wave-field.js?v=20260620-nature-wave-01";
 import { capturePreset, validatePreset, normalizeSettings } from "./hub/presets.js?v=20260524-cellnoise-02";
 import { createFieldColorizer } from "./visual/field-colorize.js?v=20260524-cellnoise-02";
 import { createFieldState } from "./data/field-state.js?v=20260524-cellnoise-02";
@@ -69,6 +70,7 @@ const elements = {
   ryukyuToggle: document.querySelector("#ryukyuToggle"),
   scaleValue: document.querySelector("#scaleValue"),
   natureToggle: document.querySelector("#natureToggle"),
+  natureFunction: document.querySelector("#natureFunction"),
   naturePreset: document.querySelector("#naturePreset"),
   natureValue: document.querySelector("#natureValue"),
   presetName: document.querySelector("#presetName"),
@@ -150,6 +152,8 @@ const state = {
   breath: { phase: 0, complexity: 0, energy: 0 },
   glitch: createGlitch(),
   rd: createReactionDiffusion(),
+  wave: createWaveField(),
+  fieldKind: "rd", // which natural function drives the nature field: "rd" | "wave"
   colorizer: createFieldColorizer(),
   evolveCanvas: null,
   colorCanvas: null,
@@ -416,6 +420,7 @@ function gatherSettings() {
   s.noiseColor = elements.noiseColor?.value ?? "digital";
   s.ryukyuOn = !!elements.ryukyuToggle?.checked;
   s.natureOn = !!elements.natureToggle?.checked;
+  s.natureFunction = elements.natureFunction?.value ?? "rd";
   s.naturePreset = elements.naturePreset?.value ?? "coral";
   return normalizeSettings(s);
 }
@@ -437,6 +442,10 @@ function applySettings(raw) {
   if (elements.ryukyuToggle) {
     elements.ryukyuToggle.checked = s.ryukyuOn;
     elements.ryukyuToggle.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  if (elements.natureFunction) {
+    elements.natureFunction.value = s.natureFunction;
+    elements.natureFunction.dispatchEvent(new Event("change", { bubbles: true }));
   }
   if (elements.naturePreset) {
     elements.naturePreset.value = s.naturePreset;
@@ -558,7 +567,13 @@ async function importPresets(file) {
   }
 }
 
-/** Bind the natural-field (reaction-diffusion) toggle + preset. */
+/** The natural function currently driving the nature field: reaction-diffusion
+ * or the wave equation. Both share the same simulator API. */
+function activeField() {
+  return state.fieldKind === "wave" ? state.wave : state.rd;
+}
+
+/** Bind the natural-field toggle, function (RD / wave) and preset. */
 function setupNatureControls() {
   if (elements.natureToggle) {
     elements.natureToggle.checked = state.natureOn;
@@ -570,21 +585,39 @@ function setupNatureControls() {
       renderFrame();
     });
   }
+  if (elements.natureFunction) {
+    state.fieldKind = elements.natureFunction.value === "wave" ? "wave" : "rd";
+    elements.natureFunction.addEventListener("change", () => {
+      state.fieldKind = elements.natureFunction.value === "wave" ? "wave" : "rd";
+      // Switching the natural function re-seeds the newly active field from the
+      // current plant and re-points the scans at its evolving image.
+      refreshScansFromSource();
+      updateNatureLabel();
+      renderFrame();
+    });
+  }
   if (elements.naturePreset) {
     elements.naturePreset.addEventListener("change", () => {
+      // Keep both functions on the same preset so switching is seamless.
       state.rd.setPreset(elements.naturePreset.value);
+      state.wave.setPreset(elements.naturePreset.value);
       updateNatureLabel();
     });
     state.rd.setPreset(elements.naturePreset.value || "coral");
+    state.wave.setPreset(elements.naturePreset.value || "coral");
   }
   updateNatureLabel();
 }
 
 function updateNatureLabel() {
   if (!elements.natureValue) return;
-  elements.natureValue.textContent = state.natureOn
-    ? (state.rd.getParams?.().preset ?? "on")
-    : "off";
+  if (!state.natureOn) {
+    elements.natureValue.textContent = "off";
+    return;
+  }
+  const p = activeField().getParams?.() ?? {};
+  const kind = state.fieldKind === "wave" ? "wave" : "rd";
+  elements.natureValue.textContent = `${kind} · ${p.preset ?? "on"}`;
 }
 
 /** Bind the Okinawa (Ryukyu) tuning toggle. */
@@ -891,12 +924,12 @@ function stepScans(dt) {
     let budget = 4; // cap catch-up so a long stall can't avalanche
     while (state.rdAccum >= RD_DT && budget-- > 0) {
       state.rdAccum -= RD_DT;
-      state.rd.step(RD_DT, 8);
+      activeField().step(RD_DT, 8);
       stepped = true;
     }
     if (state.rdAccum > RD_DT) state.rdAccum = 0; // drop backlog beyond budget
     if (stepped) {
-      state.rd.render(state.evolveCanvas);
+      activeField().render(state.evolveCanvas);
       state.rdFrame++;
     }
   }
@@ -935,7 +968,7 @@ function stepScans(dt) {
   state.degradation?.update(aggregate);
   state.engines?.percussion?.update(aggregate);
   // Bidirectional loop: what the scans hear feeds back into how the field grows.
-  if (state.natureOn) state.rd.nudge(aggregate);
+  if (state.natureOn) activeField().nudge(aggregate);
   state.aggregate = aggregate;
   advanceBreath(aggregate, dt);
   sendProcessingFrame(mappedFeatures, aggregate);
@@ -983,16 +1016,23 @@ function sendProcessingFrame(mappedFeatures, aggregate) {
   });
 }
 
-/** Reaction-diffusion state for the Processing link (preset + live feed/kill). */
+/** Nature-field state for the Processing link: which natural function is live,
+ * its preset, and the parameters being modulated by the bidirectional loop. */
 function natureFrame() {
   if (!state.natureOn) return { on: false };
-  const p = state.rd?.getParams?.() ?? {};
+  const p = activeField()?.getParams?.() ?? {};
   return {
     on: true,
+    kind: state.fieldKind,
     preset: p.preset ?? "default",
+    feedback: p.feedback ?? 0,
+    // reaction-diffusion params (undefined for wave)
     feed: p.feed ?? 0,
     kill: p.kill ?? 0,
-    feedback: p.feedback ?? 0,
+    // wave params (undefined for reaction-diffusion)
+    c2: p.c2 ?? 0,
+    damping: p.damping ?? 0,
+    forcing: p.forcing ?? 0,
   };
 }
 
@@ -1170,8 +1210,8 @@ function refreshScansFromSource() {
   // Seed the nature field from the freshly loaded plant, then point scans at
   // whichever canvas is live (evolving field or pristine source).
   if (state.natureOn) {
-    state.rd.reset(state.source.sourceCanvas);
-    state.rd.render(state.evolveCanvas);
+    activeField().reset(state.source.sourceCanvas);
+    activeField().render(state.evolveCanvas);
   }
   const src = scanSource();
   for (const scan of state.scans) {

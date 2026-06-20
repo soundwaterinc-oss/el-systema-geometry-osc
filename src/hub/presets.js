@@ -21,11 +21,13 @@ export const DEFAULT_SETTINGS = {
   clipAmount: 0.18,
   ryukyuOn: true,
   natureOn: false,
+  natureFunction: 'rd',
   naturePreset: 'coral',
 };
 
 const ENUMS = {
   noiseColor: new Set(['white', 'pink', 'digital']),
+  natureFunction: new Set(['rd', 'wave']),
   naturePreset: new Set(['coral', 'mitosis', 'waves']),
 };
 
@@ -81,6 +83,7 @@ export function normalizeSettings(partial) {
     clipAmount: normalizeNumber(input.clipAmount, DEFAULT_SETTINGS.clipAmount, 0, 1),
     ryukyuOn: normalizeBoolean(input.ryukyuOn, DEFAULT_SETTINGS.ryukyuOn),
     natureOn: normalizeBoolean(input.natureOn, DEFAULT_SETTINGS.natureOn),
+    natureFunction: normalizeEnum(input.natureFunction, DEFAULT_SETTINGS.natureFunction, ENUMS.natureFunction),
     naturePreset: normalizeEnum(input.naturePreset, DEFAULT_SETTINGS.naturePreset, ENUMS.naturePreset),
   };
 }
