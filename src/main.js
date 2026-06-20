@@ -13,7 +13,7 @@ import { createGlitch } from "./visual/glitch.js?v=20260524-cellnoise-02";
 import { createReactionDiffusion } from "./visual/reaction-diffusion.js?v=20260524-cellnoise-02";
 import { createWaveField } from "./visual/wave-field.js?v=20260620-nature-wave-01";
 import { createDiffuseField } from "./visual/diffuse-field.js?v=20260620-nature-diffuse-01";
-import { createGenerativeRenderer, GENERATIVE_FX_MODES } from "./visual/generative-gl.js?v=20260620-genfx-03";
+import { createGenerativeRenderer, GENERATIVE_FX_MODES } from "./visual/generative-gl.js?v=20260620-genfx-04";
 import { capturePreset, validatePreset, normalizeSettings } from "./hub/presets.js?v=20260524-cellnoise-02";
 import { createFieldColorizer } from "./visual/field-colorize.js?v=20260524-cellnoise-02";
 import { createFieldState } from "./data/field-state.js?v=20260524-cellnoise-02";
@@ -47,6 +47,9 @@ const MODE_KEY = "el-systema-mode";
 const DEFAULT_PRESET = SOURCE_PRESETS[0].url;
 const MAX_RENDER_FPS = 30;
 const MAX_CANVAS_DPR = 1.25;
+// Field colourise/scan resolution — independent of the (high-res) source so the
+// per-frame colourise stays cheap while the source is reflected at full fidelity.
+const NATURE_FIELD_RES = 512;
 
 const elements = {
   startAudioButton: document.querySelector("#startAudioButton"),
@@ -68,6 +71,8 @@ const elements = {
   sbMode: document.querySelector("#sbMode"),
   modeButtons: Array.from(document.querySelectorAll(".hub-mode-btn")),
   modePanels: Array.from(document.querySelectorAll("[data-panel]")),
+  featureSymmetryValue: document.querySelector("#featureSymmetryValue"),
+  featurePeriodicityValue: document.querySelector("#featurePeriodicityValue"),
   earthSeismicValue: document.querySelector("#earthSeismicValue"),
   earthSolarValue: document.querySelector("#earthSolarValue"),
   earthKpValue: document.querySelector("#earthKpValue"),
@@ -82,6 +87,10 @@ const elements = {
   fxWarpValue: document.querySelector("#fxWarpValue"),
   fxColorMix: document.querySelector("#fxColorMix"),
   fxColorMixValue: document.querySelector("#fxColorMixValue"),
+  scanLineWidth: document.querySelector("#scanLineWidth"),
+  scanLineWidthValue: document.querySelector("#scanLineWidthValue"),
+  scanLineGlow: document.querySelector("#scanLineGlow"),
+  scanLineGlowValue: document.querySelector("#scanLineGlowValue"),
   presetName: document.querySelector("#presetName"),
   presetSave: document.querySelector("#presetSave"),
   presetList: document.querySelector("#presetList"),
@@ -165,9 +174,12 @@ const state = {
   diffuse: createDiffuseField({ size: 320 }),
   fieldKind: "rd", // natural function driving the field: "rd" | "wave" | "diffuse"
   gl: null, // lazy WebGL2 generative renderer (null until first display)
-  fxMode: "flow", // generative FX: flow | refract | kaleido | contour
+  fxMode: "flow", // generative FX: flow | refract | kaleido | contour | mirror | slice | tile
   fxWarp: 0.06,
   fxColorMix: 0, // off by default — the field warps the image, doesn't colour-cover it
+  scanLineWidth: 1.6, // scan-line thickness multiplier
+  scanLineGlow: 1.0, // scan-line opacity multiplier
+  geo: { symmetry: 0, periodicity: 0 }, // live geometric features of the material
   morphPhase: 0, // slow spin of the source plant in the generative composite
   colorizer: createFieldColorizer(),
   evolveCanvas: null,
@@ -441,6 +453,8 @@ function gatherSettings() {
   s.fxMode = elements.fxMode?.value ?? state.fxMode;
   s.fxWarp = elements.fxWarp ? Number(elements.fxWarp.value) : state.fxWarp;
   s.fxColorMix = elements.fxColorMix ? Number(elements.fxColorMix.value) : state.fxColorMix;
+  s.scanLineWidth = elements.scanLineWidth ? Number(elements.scanLineWidth.value) : state.scanLineWidth;
+  s.scanLineGlow = elements.scanLineGlow ? Number(elements.scanLineGlow.value) : state.scanLineGlow;
   return normalizeSettings(s);
 }
 
@@ -481,6 +495,14 @@ function applySettings(raw) {
   if (elements.fxColorMix) {
     elements.fxColorMix.value = String(s.fxColorMix);
     elements.fxColorMix.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  if (elements.scanLineWidth) {
+    elements.scanLineWidth.value = String(s.scanLineWidth);
+    elements.scanLineWidth.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  if (elements.scanLineGlow) {
+    elements.scanLineGlow.value = String(s.scanLineGlow);
+    elements.scanLineGlow.dispatchEvent(new Event("input", { bubbles: true }));
   }
   if (elements.natureToggle) {
     elements.natureToggle.checked = s.natureOn;
@@ -668,6 +690,18 @@ function setupNatureControls() {
       onChange: (v) => { state.fxColorMix = v; },
     });
   }
+  if (elements.scanLineWidth) {
+    bindRange(elements.scanLineWidth, elements.scanLineWidthValue, {
+      format: (v) => v.toFixed(1),
+      onChange: (v) => { state.scanLineWidth = v; },
+    });
+  }
+  if (elements.scanLineGlow) {
+    bindRange(elements.scanLineGlow, elements.scanLineGlowValue, {
+      format: (v) => v.toFixed(2),
+      onChange: (v) => { state.scanLineGlow = v; },
+    });
+  }
   updateNatureLabel();
 }
 
@@ -816,18 +850,19 @@ function ensureSource() {
   if (state.scans.length === 0) {
     state.scans = SCAN_COLORS.map((color) => new ScanEngine({ color }));
   }
-  if (!state.evolveCanvas) {
-    state.evolveCanvas = document.createElement("canvas");
-    state.evolveCanvas.width = state.source.sourceCanvas.width;
-    state.evolveCanvas.height = state.source.sourceCanvas.height;
+  // Field canvases stay at a modest resolution (the field sim is ~320 and the
+  // GPU upsamples it smoothly) so the per-frame colourise stays cheap even
+  // though the source is now high-res.
+  for (const key of ["evolveCanvas", "colorCanvas"]) {
+    if (!state[key]) {
+      state[key] = document.createElement("canvas");
+      state[key].width = NATURE_FIELD_RES;
+      state[key].height = NATURE_FIELD_RES;
+    }
   }
-  if (!state.colorCanvas) {
-    state.colorCanvas = document.createElement("canvas");
-    state.colorCanvas.width = state.source.sourceCanvas.width;
-    state.colorCanvas.height = state.source.sourceCanvas.height;
-  }
-  // morphCanvas = the slowly spinning/breathing plant; displayCanvas = the final
-  // composite (plant base + translucent evolving field) shown on the scan stage.
+  // morphCanvas = the spinning/breathing plant (full source resolution so the
+  // GPU FX process the original at maximum fidelity); displayCanvas = the 2D
+  // fallback composite.
   for (const key of ["morphCanvas", "displayCanvas"]) {
     if (!state[key]) {
       state[key] = document.createElement("canvas");
@@ -893,7 +928,9 @@ function displaySource() {
     gl.render(state.morphCanvas, state.colorCanvas, {
       time: state.morphPhase,
       breath: breathWave,
-      warp: state.fxWarp,
+      // Geometric feedback: repetitive material (high periodicity) flows a touch
+      // more — the source's own structure drives the FX.
+      warp: state.fxWarp * (1 + 0.6 * (state.geo?.periodicity ?? 0)),
       colorMix: state.fxColorMix,
       mode: state.fxMode,
       fieldRgb: rgb,
@@ -961,6 +998,21 @@ function buildAudioGraph() {
   applyControls();
   applyScale();
   applyPercussionPulse();
+}
+
+/** Average the geometric features (symmetry / periodicity) across the raw scans. */
+function aggregateGeo(mappedFeatures) {
+  let s = 0;
+  let p = 0;
+  let n = 0;
+  for (const entry of mappedFeatures) {
+    const r = entry?.raw;
+    if (!r) continue;
+    s += r.symmetry ?? 0;
+    p += r.periodicity ?? 0;
+    n += 1;
+  }
+  return { symmetry: n ? s / n : 0, periodicity: n ? p / n : 0 };
 }
 
 /** Drive the percussion as a single Okinawan pulse (unison, no polyrhythm). */
@@ -1111,10 +1163,13 @@ function stepScans(dt) {
   state.engines?.noise?.update(mappedFeatures[2]?.mapped ?? emptyFeatures());
 
   const aggregate = aggregateFeatures(mappedFeatures.map((entry) => entry?.mapped ?? emptyFeatures()));
+  // Geometric features (symmetry / periodicity) averaged across the raw scans.
+  state.geo = aggregateGeo(mappedFeatures);
   state.degradation?.update(aggregate);
   state.engines?.percussion?.update(aggregate);
-  // Bidirectional loop: what the scans hear feeds back into how the field grows.
-  if (state.natureOn) activeField().nudge(aggregate);
+  // Bidirectional loop: what the scans hear (plus the material's geometry) feeds
+  // back into how the field grows.
+  if (state.natureOn) activeField().nudge({ ...aggregate, ...state.geo });
   state.aggregate = aggregate;
   advanceBreath(aggregate, dt);
   // The plant in the generative composite turns slowly, a touch faster when the
@@ -1176,6 +1231,7 @@ function natureFrame() {
     preset: p.preset ?? "default",
     feedback: p.feedback ?? 0,
     fx: { mode: state.fxMode, warp: state.fxWarp, colorMix: state.fxColorMix, gpu: !!state.gl?.isAvailable },
+    geo: { symmetry: state.geo?.symmetry ?? 0, periodicity: state.geo?.periodicity ?? 0 },
     // reaction-diffusion params
     feed: p.feed ?? 0,
     kill: p.kill ?? 0,
@@ -1404,6 +1460,8 @@ function renderStats(mappedFeatures, aggregate) {
   elements.featureEdgeIntensityValue.textContent = aggregate.edgeIntensity.toFixed(2);
   elements.featureLocalContrastValue.textContent = aggregate.localContrast.toFixed(2);
   elements.featureEdgeCountValue.textContent = aggregate.edgeCount.toFixed(2);
+  if (elements.featureSymmetryValue) elements.featureSymmetryValue.textContent = (state.geo?.symmetry ?? 0).toFixed(2);
+  if (elements.featurePeriodicityValue) elements.featurePeriodicityValue.textContent = (state.geo?.periodicity ?? 0).toFixed(2);
 }
 
 function renderUI(resetStats = false) {
@@ -1448,8 +1506,9 @@ function renderFrame() {
   }
 
   if (state.scans.length) {
+    const lineOpts = { width: state.scanLineWidth, glow: state.scanLineGlow };
     for (const scan of state.scans) {
-      scan.drawScanLine(ctx, width, height);
+      scan.drawScanLine(ctx, width, height, lineOpts);
     }
   }
 
@@ -1500,11 +1559,20 @@ function renderField() {
     return;
   }
 
-  // GPU generative image is the art: keep the overlay fully clear so the
-  // particle afterimage never accumulates into a white wash over it. The scan
-  // expression stays as the crisp scan lines drawn on the layer beneath.
+  // GPU generative image is the art: keep faint, fast-fading particle glints
+  // over it for life, but never let them accumulate into a wash — short trails
+  // (erase 55%/frame) and low alpha so they glint without covering. The scan
+  // expression stays as the crisp scan lines on the layer beneath.
   if (state.natureOn) {
-    ctx.clearRect(0, 0, width, height);
+    ctx.save();
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(0, 0, width, height);
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = 0.28; // multiplies the additive particle alpha — glints, not cover
+    drawParticles(ctx, state.particles, width, height);
+    ctx.restore();
     return;
   }
 

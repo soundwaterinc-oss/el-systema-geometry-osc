@@ -1,8 +1,10 @@
 export class PatternSource {
   constructor() {
+    // High source resolution so the original material is reflected at maximum
+    // fidelity through the GPU processing (the FX treat the source, not cover it).
     this.sourceCanvas = document.createElement('canvas');
-    this.sourceCanvas.width = 512;
-    this.sourceCanvas.height = 512;
+    this.sourceCanvas.width = 1024;
+    this.sourceCanvas.height = 1024;
     this._ctx = this.sourceCanvas.getContext('2d', { willReadFrequently: true });
     this.sourceLabel = '—';
   }

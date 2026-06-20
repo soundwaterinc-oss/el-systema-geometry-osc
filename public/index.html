@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CellNoiseGenerator</title>
-    <link rel="stylesheet" href="./styles.css?v=20260620-clean-06" />
+    <link rel="stylesheet" href="./styles.css?v=20260620-material-07" />
   </head>
   <body>
     <main class="app-shell">
@@ -105,6 +105,16 @@
                 <input id="pitchBase" type="range" min="40" max="240" step="1" value="80" />
                 <strong id="pitchBaseValue">80Hz</strong>
               </label>
+              <label class="slider compact">
+                <span>scanLine 太さ</span>
+                <input id="scanLineWidth" type="range" min="0" max="5" step="0.1" value="1.6" />
+                <strong id="scanLineWidthValue">1.6</strong>
+              </label>
+              <label class="slider compact">
+                <span>scanLine 輝度</span>
+                <input id="scanLineGlow" type="range" min="0" max="2" step="0.05" value="1" />
+                <strong id="scanLineGlowValue">1.00</strong>
+              </label>
             </div>
           </section>
 
@@ -140,6 +150,9 @@
                   <option value="flow" selected>flow ドメインワープ</option>
                   <option value="refract">refract 屈折</option>
                   <option value="kaleido">kaleido 万華鏡</option>
+                  <option value="mirror">mirror ミラー</option>
+                  <option value="slice">slice スリットスキャン</option>
+                  <option value="tile">tile タイル</option>
                   <option value="contour">contour 等高線</option>
                 </select>
               </label>
@@ -392,6 +405,14 @@
               <div class="metric-card">
                 <span>Edge Count</span>
                 <strong id="featureEdgeCountValue">0.00</strong>
+              </div>
+              <div class="metric-card">
+                <span>Symmetry</span>
+                <strong id="featureSymmetryValue">0.00</strong>
+              </div>
+              <div class="metric-card">
+                <span>Period</span>
+                <strong id="featurePeriodicityValue">0.00</strong>
               </div>
             </div>
           </section>

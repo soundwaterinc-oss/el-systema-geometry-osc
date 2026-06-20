@@ -7,7 +7,7 @@ const THRESHOLD = 0.5;
 export function extractFeatures(pixels) {
   const n = pixels.length;
   if (n === 0) {
-    return { density: 0, toggleRate: 0, complexity: 0, edgeIntensity: 0, localContrast: 0, edgeCount: 0 };
+    return { density: 0, toggleRate: 0, complexity: 0, edgeIntensity: 0, localContrast: 0, edgeCount: 0, symmetry: 0, periodicity: 0 };
   }
 
   let darkCount = 0;
@@ -47,5 +47,34 @@ export function extractFeatures(pixels) {
   const localContrast = Math.min(1, avgEdge * 5 + variance * 2);
   const edgeCount = Math.min(1, toggles / Math.max(1, n - 1));
 
-  return { density, toggleRate, complexity, edgeIntensity, localContrast, edgeCount };
+  // --- Geometric features (structure of the scanned material) ---
+  // symmetry: how mirror-symmetric the line is about its centre (1 = perfect).
+  const half = n >> 1;
+  let symDiff = 0;
+  for (let i = 0; i < half; i++) symDiff += Math.abs(pixels[i] - pixels[n - 1 - i]);
+  const symmetry = half > 0 ? Math.max(0, 1 - (symDiff / half) * 2) : 0;
+
+  // periodicity: strongest normalised autocorrelation over a bounded lag window
+  // — high when the material repeats (phyllotaxis spirals, gratings, tilings).
+  let periodicity = 0;
+  let denom = 0;
+  for (let i = 0; i < n; i++) {
+    const d = pixels[i] - mean;
+    denom += d * d;
+  }
+  if (denom > 1e-6) {
+    const maxLag = Math.min(64, half);
+    for (let lag = 2; lag < maxLag; lag++) {
+      let num = 0;
+      for (let i = 0; i + lag < n; i++) num += (pixels[i] - mean) * (pixels[i + lag] - mean);
+      const corr = num / denom;
+      if (corr > periodicity) periodicity = corr;
+    }
+  }
+  periodicity = Math.max(0, Math.min(1, periodicity));
+
+  return {
+    density, toggleRate, complexity, edgeIntensity, localContrast, edgeCount,
+    symmetry, periodicity,
+  };
 }

@@ -197,7 +197,7 @@ export class ScanEngine {
     return pixels;
   }
 
-  drawScanLine(ctx, W, H) {
+  drawScanLine(ctx, W, H, opts = {}) {
     const seg = this._currentSeg;
     if (!seg || !this._imgW) return;
 
@@ -205,11 +205,18 @@ export class ScanEngine {
     const scaleY = H / this._imgH;
 
     const rgb = this.color;
+    // width/glow multipliers (1 = default); base width scales with the canvas
+    // so the line reads the same at any resolution.
+    const wMul = Number.isFinite(opts.width) ? opts.width : 1;
+    const aMul = Number.isFinite(opts.glow) ? opts.glow : 1;
+    const baseW = Math.max(1, (Math.min(W, H) / 480) * wMul);
+    const a = (v) => Math.max(0, Math.min(1, v * aMul));
 
     // Current segment path (ghosted)
     ctx.save();
-    ctx.strokeStyle = `rgba(${rgb}, 0.30)`;
-    ctx.lineWidth = 1;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = `rgba(${rgb}, ${a(0.3)})`;
+    ctx.lineWidth = baseW * 0.55;
     ctx.beginPath();
     ctx.moveTo(seg.x0 * scaleX, seg.y0 * scaleY);
     ctx.lineTo(seg.x1 * scaleX, seg.y1 * scaleY);
@@ -224,16 +231,16 @@ export class ScanEngine {
     const lx = -Math.sin(head.angle);
     const ly = Math.cos(head.angle);
 
-    ctx.strokeStyle = `rgba(${rgb}, 0.70)`;
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = `rgba(${rgb}, ${a(0.72)})`;
+    ctx.lineWidth = baseW;
     ctx.beginPath();
     ctx.moveTo(hx + lx * halfLen, hy + ly * halfLen);
     ctx.lineTo(hx - lx * halfLen, hy - ly * halfLen);
     ctx.stroke();
 
     // Head dot scaled by per-segment strength
-    const r = 3 + this.strength * 3.5;
-    ctx.fillStyle = `rgba(${rgb}, 0.95)`;
+    const r = (3 + this.strength * 3.5) * (0.7 + 0.6 * wMul);
+    ctx.fillStyle = `rgba(${rgb}, ${a(0.95)})`;
     ctx.beginPath();
     ctx.arc(hx, hy, r, 0, Math.PI * 2);
     ctx.fill();

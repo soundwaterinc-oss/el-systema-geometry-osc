@@ -42,21 +42,43 @@ vec2 fieldGrad(vec2 uv) {
   return vec2(r - l, u - d);
 }
 
+mat2 rot(float a) { return mat2(cos(a), -sin(a), sin(a), cos(a)); }
+
+// --- Material folds: reshape the SOURCE sampling coords (cut the original),
+//     never generate over it. All return UVs back into the plant texture. ---
+
+// 6-segment polar kaleidoscope, slowly rotating.
+vec2 kaleidoFold(vec2 uv, float t) {
+  vec2 c = uv - 0.5;
+  float ang = atan(c.y, c.x);
+  float rad = length(c);
+  float seg = 6.2831853 / 6.0;
+  ang = abs(mod(ang, seg) - seg * 0.5) + 0.25 * sin(t * 0.2);
+  return vec2(cos(ang), sin(ang)) * rad + 0.5;
+}
+
+// 2x2 mirrored tiling — clean mirror cuts of the material.
+vec2 mirrorFold(vec2 uv, float t) {
+  vec2 q = (uv - 0.5) * rot(0.1 * sin(t * 0.12)) + 0.5;
+  return abs(fract(q) * 2.0 - 1.0);
+}
+
+// Droste-ish recursive tiling with a slow rotate/zoom drift.
+vec2 tileFold(vec2 uv, float t) {
+  vec2 c = (uv - 0.5) * rot(0.18 * sin(t * 0.13));
+  return fract(c * 2.3 + 0.5 + 0.015 * t);
+}
+
 void main() {
   vec2 uv = vUv;
   float breath = 0.5 + 0.5 * uBreath;
   float warp = uWarp * (0.5 + 0.8 * breath);
 
-  // Kaleidoscopic polar fold (mode 2) reshapes UVs before the flow warp.
+  // Material fold (mode-dependent) reshapes the source sampling coords first.
   vec2 base = uv;
-  if (uMode == 2) {
-    vec2 c = uv - 0.5;
-    float ang = atan(c.y, c.x);
-    float rad = length(c);
-    float seg = 6.2831853 / 6.0;
-    ang = abs(mod(ang, seg) - seg * 0.5) + 0.3 * sin(uTime * 0.2);
-    base = vec2(cos(ang), sin(ang)) * rad + 0.5;
-  }
+  if (uMode == 2) base = kaleidoFold(uv, uTime);
+  else if (uMode == 4) base = mirrorFold(uv, uTime);
+  else if (uMode == 6) base = tileFold(uv, uTime);
 
   // Two octaves of field flow domain-warp the sampling point — the plant
   // image is dragged along the living field rather than covered by it.
@@ -64,6 +86,13 @@ void main() {
   vec2 p = base + g * warp;
   p += fieldGrad(p) * warp * 0.5;
   p += 0.004 * vec2(sin(uTime * 0.3 + uv.y * 6.0), cos(uTime * 0.27 + uv.x * 6.0)) * breath;
+
+  // Slice (mode 5): shear the material in horizontal bands by the field — a
+  // slit-scan cut of the original.
+  if (uMode == 5) {
+    float band = luma(texture(uField, vec2(0.5, p.y)).rgb) - 0.5;
+    p.x += band * (warp * 6.0 + 0.04);
+  }
 
   vec3 col;
   if (uMode == 1) {
@@ -119,7 +148,7 @@ function compile(gl, type, src) {
   return sh;
 }
 
-const MODE_INDEX = { flow: 0, refract: 1, kaleido: 2, contour: 3 };
+const MODE_INDEX = { flow: 0, refract: 1, kaleido: 2, contour: 3, mirror: 4, slice: 5, tile: 6 };
 
 export function createGenerativeRenderer(opts = {}) {
   const canvas = document.createElement("canvas");
