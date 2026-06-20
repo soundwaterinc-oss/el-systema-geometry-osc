@@ -1,0 +1,610 @@
+:root {
+  color-scheme: dark;
+  --bg: #040608;
+  --panel: rgba(9, 13, 17, 0.9);
+  --panel-strong: rgba(13, 19, 25, 0.96);
+  --panel-soft: rgba(18, 26, 34, 0.84);
+  --line: rgba(124, 158, 184, 0.22);
+  --line-strong: rgba(196, 255, 77, 0.3);
+  --text: #edf3f7;
+  --muted: #8b98a4;
+  --accent: #d0ff5a;
+  --accent-2: #7fe8ff;
+  --accent-3: #ff8aca;
+  --shadow: 0 28px 60px rgba(0, 0, 0, 0.38);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 15% 10%, rgba(208, 255, 90, 0.14), transparent 18%),
+    radial-gradient(circle at 85% 12%, rgba(127, 232, 255, 0.14), transparent 20%),
+    radial-gradient(circle at 60% 80%, rgba(255, 138, 202, 0.08), transparent 24%),
+    linear-gradient(180deg, #06080b 0%, #030507 100%);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.app-shell {
+  width: min(1640px, calc(100% - 28px));
+  margin: 14px auto 20px;
+}
+
+.studio-frame {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
+    var(--panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+}
+
+.sidebar {
+  position: sticky;
+  top: 14px;
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  background:
+    linear-gradient(180deg, rgba(208, 255, 90, 0.05), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0)),
+    var(--panel-strong);
+  max-height: calc(100vh - 28px);
+  overflow: auto;
+}
+
+.sidebar-head {
+  display: grid;
+  gap: 8px;
+  padding: 4px 2px 10px;
+}
+
+.eyebrow,
+.lede,
+.section-heading small,
+.section-heading span,
+.status-card span,
+.metric-card span,
+.file-drop span,
+.info-card span {
+  color: var(--muted);
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+h1,
+h2 {
+  margin: 0;
+  letter-spacing: 0.06em;
+}
+
+h1 {
+  font-size: clamp(2rem, 4vw, 2.7rem);
+  line-height: 0.98;
+}
+
+h2 {
+  font-size: clamp(1.4rem, 3vw, 2.2rem);
+  line-height: 1.05;
+}
+
+.lede {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.control-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(124, 158, 184, 0.14);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.012));
+}
+
+.section-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.section-heading span {
+  font-size: 0.82rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.transport-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.transport-grid .wide {
+  grid-column: 1 / -1;
+}
+
+button {
+  border: 1px solid rgba(124, 158, 184, 0.24);
+  border-radius: 14px;
+  background: rgba(18, 26, 34, 0.9);
+  color: var(--text);
+  padding: 11px 12px;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+
+button.primary {
+  border-color: rgba(208, 255, 90, 0.4);
+  background: linear-gradient(180deg, rgba(208, 255, 90, 0.16), rgba(208, 255, 90, 0.07));
+}
+
+.preset-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.preset-button.is-active {
+  border-color: var(--accent-2);
+  color: var(--accent-2);
+  background: linear-gradient(180deg, rgba(127, 232, 255, 0.16), rgba(127, 232, 255, 0.06));
+}
+
+.file-drop {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px dashed rgba(124, 158, 184, 0.22);
+  border-radius: 16px;
+  background: rgba(12, 18, 24, 0.72);
+}
+
+.file-drop input[type="file"] {
+  width: 100%;
+  color: var(--muted);
+}
+
+.slider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.slider-grid.dense {
+  grid-template-columns: 1fr;
+}
+
+.slider {
+  display: grid;
+  gap: 6px;
+  padding: 10px 11px;
+  border: 1px solid rgba(124, 158, 184, 0.12);
+  border-radius: 14px;
+  background: var(--panel-soft);
+}
+
+.slider.compact span {
+  font-size: 0.73rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.slider strong {
+  color: var(--accent);
+  font-size: 0.92rem;
+}
+
+.select-wrap select {
+  margin-top: 2px;
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+select {
+  width: 100%;
+  border: 1px solid rgba(124, 158, 184, 0.18);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #091017;
+  color: var(--text);
+}
+
+.stage {
+  display: grid;
+  gap: 14px;
+}
+
+.stage-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.7fr);
+  gap: 14px;
+  padding: 20px 22px;
+  background:
+    radial-gradient(circle at top right, rgba(127, 232, 255, 0.1), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(208, 255, 90, 0.08), transparent 26%),
+    var(--panel);
+}
+
+.stage-copy {
+  display: grid;
+  gap: 10px;
+}
+
+.stage-status {
+  display: grid;
+  gap: 10px;
+}
+
+.status-card {
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(124, 158, 184, 0.16);
+  background: rgba(14, 20, 27, 0.82);
+}
+
+.status-card.major {
+  background: linear-gradient(180deg, rgba(208, 255, 90, 0.12), rgba(14, 20, 27, 0.9));
+  border-color: rgba(208, 255, 90, 0.28);
+}
+
+.status-card strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1.02rem;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stage-grid {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.48fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.source-stage,
+.scan-stage,
+.metrics-panel {
+  padding: 18px;
+}
+
+.source-stage {
+  display: grid;
+  gap: 14px;
+}
+
+.source-stage-body {
+  display: grid;
+  gap: 12px;
+}
+
+.source-image-wrap {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  border: 1px solid rgba(124, 158, 184, 0.18);
+  background:
+    radial-gradient(circle at center, rgba(127, 232, 255, 0.08), transparent 42%),
+    #030507;
+  min-height: 360px;
+}
+
+#sourcePreviewImage {
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+  display: block;
+  object-fit: cover;
+}
+
+.source-info-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.info-card {
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(124, 158, 184, 0.14);
+  background: rgba(14, 20, 27, 0.72);
+}
+
+.info-card strong {
+  display: block;
+  margin-top: 7px;
+  color: var(--accent-2);
+  word-break: break-word;
+}
+
+.chips-card {
+  gap: 8px;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(124, 158, 184, 0.18);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 0.74rem;
+  color: var(--text);
+}
+
+.scan-stage {
+  display: grid;
+  gap: 14px;
+  min-height: 100%;
+}
+
+.canvas-stack {
+  position: relative;
+  width: 100%;
+  min-height: 660px;
+}
+
+#scanCanvas,
+#fieldCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 22px;
+}
+
+#scanCanvas {
+  border: 1px solid rgba(124, 158, 184, 0.18);
+  background:
+    radial-gradient(circle at 50% 45%, rgba(127, 232, 255, 0.08), transparent 34%),
+    radial-gradient(circle at 25% 70%, rgba(208, 255, 90, 0.06), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent),
+    #020406;
+}
+
+/* Particle / afterimage layer sits above the geometry field. */
+#fieldCanvas {
+  pointer-events: none;
+  background: transparent;
+}
+
+/* Global HUB status bar — the whole instrument's live state at a glance. */
+.hub-bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 10px 18px;
+  margin-bottom: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(124, 158, 184, 0.18);
+  background: linear-gradient(180deg, rgba(18, 28, 36, 0.92), rgba(10, 16, 22, 0.92));
+}
+
+.hub-brand {
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: rgba(150, 230, 200, 0.92);
+}
+
+/* Mode-switch shell — curate which control panels are shown per workspace. */
+.hub-modes {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 12px;
+  background: rgba(8, 14, 20, 0.6);
+  border: 1px solid rgba(124, 158, 184, 0.16);
+}
+
+.hub-mode-btn {
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+  color: rgba(160, 184, 200, 0.72);
+  background: transparent;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.hub-mode-btn:hover {
+  color: rgba(232, 244, 255, 0.92);
+}
+
+.hub-mode-btn.is-active {
+  color: rgba(10, 16, 22, 0.96);
+  background: linear-gradient(180deg, rgba(150, 230, 200, 0.95), rgba(120, 210, 180, 0.95));
+}
+
+/* Mode hides a panel without unbinding it — DOM and listeners stay intact. */
+.control-panel.is-hidden {
+  display: none;
+}
+
+.hub-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.hub-chip em {
+  font-style: normal;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(160, 184, 200, 0.6);
+}
+
+.hub-chip strong {
+  font-size: 0.95rem;
+  color: rgba(232, 244, 255, 0.96);
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toggle-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #7ce8c0;
+}
+
+.toggle-row strong {
+  margin-left: auto;
+}
+
+/* Live planetary state — each session inherits a different earth bias. */
+.earth-grid {
+  margin-top: 8px;
+}
+
+.earth-card {
+  border-color: rgba(124, 200, 184, 0.22);
+  background: rgba(12, 24, 22, 0.74);
+}
+
+.earth-card span {
+  color: rgba(150, 230, 200, 0.75);
+}
+
+.metrics-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric-card {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(124, 158, 184, 0.14);
+  background: rgba(14, 20, 27, 0.74);
+}
+
+.metric-card strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1.08rem;
+}
+
+@media (max-width: 1280px) {
+  .studio-frame {
+    grid-template-columns: 320px minmax(0, 1fr);
+  }
+
+  .stage-top,
+  .stage-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .canvas-stack {
+    min-height: 560px;
+  }
+
+  .metrics-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 980px) {
+  .studio-frame {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: static;
+    max-height: none;
+  }
+
+  .app-shell {
+    width: min(100% - 18px, 1640px);
+    margin: 10px auto 18px;
+  }
+}
+
+@media (max-width: 720px) {
+  .transport-grid,
+  .preset-strip,
+  .status-grid,
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .slider-grid,
+  .slider-grid.dense {
+    grid-template-columns: 1fr;
+  }
+
+  .stage-top,
+  .source-stage,
+  .scan-stage,
+  .metrics-panel,
+  .sidebar {
+    padding: 14px;
+  }
+
+  #sourcePreviewImage,
+  .source-image-wrap,
+  .canvas-stack {
+    min-height: 320px;
+  }
+}

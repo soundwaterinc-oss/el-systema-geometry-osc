@@ -1,0 +1,9 @@
+{
+  "name": "el-systema-geometry-osc",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve . -l 3000",
+    "start": "npx serve . -l 3000"
+  }
+}

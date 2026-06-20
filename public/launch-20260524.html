@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CellNoiseGenerator</title>
+    <link rel="stylesheet" href="./styles.css?v=20260517-cellnoise-01" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero panel">
+        <div>
+          <p class="eyebrow">geometry-driven noise lab</p>
+          <h1>CellNoiseGenerator</h1>
+          <p class="lede">Geometry Source → Scan Engine → Feature Mapper → high-density digital noise.</p>
+          <p class="lede">Cell2 front-loaded, three scans, three layers, one master bus.</p>
+        </div>
+        <div class="hero-meta">
+          <span class="chip">plain HTML/CSS/JS</span>
+          <span class="chip">Web Audio API</span>
+          <span class="chip">Canvas API</span>
+          <span class="chip">3 scan streams</span>
+        </div>
+      </section>
+
+      <section class="layout">
+        <aside class="panel controls">
+          <div class="transport transport-grid">
+            <button id="startAudioButton" class="primary">Start Audio</button>
+            <button id="startScanButton">Start Scan</button>
+            <button id="startAllButton">Start All</button>
+            <button id="stopButton">Stop</button>
+            <button id="stopAllButton">Stop All</button>
+          </div>
+
+          <section class="control-block">
+            <div class="section-title">
+              <span>Source</span>
+              <small id="sourceLabel">Default Pattern</small>
+            </div>
+
+            <div class="preset-strip" id="presetStrip" role="tablist" aria-label="Source preset">
+              <button type="button" class="preset-button is-active" data-preset="./assets/cell2.vector.svg">cell2.vector.svg</button>
+              <button type="button" class="preset-button" data-preset="./assets/cells_lithocyst_001.svg">cells_lithocyst_001.svg</button>
+            </div>
+
+            <label class="file-drop">
+              <span>Custom image</span>
+              <input id="imageUpload" type="file" accept="image/*,.svg" />
+            </label>
+          </section>
+
+          <section class="control-block">
+            <div class="section-title">
+              <span>Geometry scan</span>
+              <small>Three segment-driven scan heads move across the source.</small>
+            </div>
+            <div class="slider-grid">
+              <label class="slider">
+                <span>scanSpeed</span>
+                <input id="scanSpeed" type="range" min="0.05" max="3" step="0.01" value="0.78" />
+                <strong id="scanSpeedValue">0.78</strong>
+              </label>
+              <label class="slider">
+                <span>scanAngle</span>
+                <input id="scanAngle" type="range" min="-180" max="180" step="1" value="24" />
+                <strong id="scanAngleValue">24°</strong>
+              </label>
+            </div>
+          </section>
+
+          <section class="control-block">
+            <div class="section-title">
+              <span>Layer mix</span>
+              <small>Sine, pulse and noise sit on one master bus.</small>
+            </div>
+            <div class="slider-grid">
+              <label class="slider compact">
+                <span>pitchBase</span>
+                <input id="pitchBase" type="range" min="40" max="240" step="1" value="80" />
+                <strong id="pitchBaseValue">80Hz</strong>
+              </label>
+              <label class="slider compact">
+                <span>sineMix</span>
+                <input id="sineMix" type="range" min="0" max="1.2" step="0.01" value="0.38" />
+                <strong id="sineMixValue">0.38</strong>
+              </label>
+              <label class="slider compact">
+                <span>pulseMix</span>
+                <input id="pulseMix" type="range" min="0" max="1.2" step="0.01" value="0.56" />
+                <strong id="pulseMixValue">0.56</strong>
+              </label>
+              <label class="slider compact">
+                <span>noiseMix</span>
+                <input id="noiseMix" type="range" min="0" max="1.2" step="0.01" value="0.62" />
+                <strong id="noiseMixValue">0.62</strong>
+              </label>
+              <label class="slider compact">
+                <span>masterGain</span>
+                <input id="masterGain" type="range" min="0" max="1.4" step="0.01" value="0.74" />
+                <strong id="masterGainValue">0.74</strong>
+              </label>
+            </div>
+          </section>
+
+          <section class="control-block">
+            <div class="section-title">
+              <span>Pulse / Click</span>
+              <small>Click and burst density keyed to geometry edges.</small>
+            </div>
+            <div class="slider-grid">
+              <label class="slider">
+                <span>clickGain</span>
+                <input id="clickGain" type="range" min="0" max="1.4" step="0.01" value="0.72" />
+                <strong id="clickGainValue">0.72</strong>
+              </label>
+              <label class="slider">
+                <span>pulseRate</span>
+                <input id="pulseRate" type="range" min="0.25" max="18" step="0.01" value="7.5" />
+                <strong id="pulseRateValue">7.50</strong>
+              </label>
+              <label class="slider">
+                <span>pulseWidth</span>
+                <input id="pulseWidth" type="range" min="2" max="80" step="0.1" value="12" />
+                <strong id="pulseWidthValue">12.0ms</strong>
+              </label>
+              <label class="slider">
+                <span>burstDensity</span>
+                <input id="burstDensity" type="range" min="0" max="1" step="0.01" value="0.56" />
+                <strong id="burstDensityValue">0.56</strong>
+              </label>
+            </div>
+          </section>
+
+          <section class="control-block">
+            <div class="section-title">
+              <span>Noise Engine</span>
+              <small>white / pink / digital colors, filtered and sharpened.</small>
+            </div>
+            <div class="slider-grid">
+              <label class="slider">
+                <span>noiseGain</span>
+                <input id="noiseGain" type="range" min="0" max="1.4" step="0.01" value="0.56" />
+                <strong id="noiseGainValue">0.56</strong>
+              </label>
+              <label class="slider">
+                <span>noiseBandFreq</span>
+                <input id="noiseBandFreq" type="range" min="80" max="12000" step="1" value="1450" />
+                <strong id="noiseBandFreqValue">1450Hz</strong>
+              </label>
+              <label class="slider">
+                <span>noiseQ</span>
+                <input id="noiseQ" type="range" min="0.2" max="24" step="0.01" value="5.5" />
+                <strong id="noiseQValue">5.50</strong>
+              </label>
+              <label class="slider">
+                <span>noiseColor</span>
+                <select id="noiseColor">
+                  <option value="white">white</option>
+                  <option value="pink">pink</option>
+                  <option value="digital" selected>digital</option>
+                </select>
+                <strong id="noiseColorValue">digital</strong>
+              </label>
+            </div>
+          </section>
+
+          <section class="control-block">
+            <div class="section-title">
+              <span>Digital degradation</span>
+              <small>bitcrush, sample-rate reduction, clip / fold.</small>
+            </div>
+            <div class="slider-grid">
+              <label class="slider">
+                <span>bitDepth</span>
+                <input id="bitDepth" type="range" min="1" max="16" step="1" value="13" />
+                <strong id="bitDepthValue">13</strong>
+              </label>
+              <label class="slider">
+                <span>sampleRateReduction</span>
+                <input id="sampleRateReduction" type="range" min="1" max="48" step="1" value="2" />
+                <strong id="sampleRateReductionValue">2</strong>
+              </label>
+              <label class="slider">
+                <span>clipAmount</span>
+                <input id="clipAmount" type="range" min="0" max="1" step="0.01" value="0.18" />
+                <strong id="clipAmountValue">0.18</strong>
+              </label>
+            </div>
+          </section>
+        </aside>
+
+        <section class="panel preview">
+          <div class="preview-header">
+            <div>
+              <span class="section-title-inline">Scan viewport</span>
+              <p id="sourceLabelPreview">cell2.vector.svg</p>
+            </div>
+            <div class="status-grid">
+              <div>
+                <span>Status</span>
+                <strong id="statusValue">Ready</strong>
+              </div>
+              <div>
+                <span>Scan A</span>
+                <strong id="scanAValue">0.00</strong>
+              </div>
+              <div>
+                <span>Scan B</span>
+                <strong id="scanBValue">0.00</strong>
+              </div>
+              <div>
+                <span>Scan C</span>
+                <strong id="scanCValue">0.00</strong>
+              </div>
+            </div>
+          </div>
+
+          <section class="source-preview panel-lite">
+            <div class="section-title">
+              <span>Source preview</span>
+              <small>The current geometry image is rendered here before scan extraction.</small>
+            </div>
+            <div class="source-preview-body">
+              <img id="sourcePreviewImage" alt="Current geometry source" />
+              <div class="source-preview-meta">
+                <div>
+                  <span>Current file</span>
+                  <strong id="sourceLabelInline">cell2.vector.svg</strong>
+                </div>
+                <div>
+                  <span>Scan mode</span>
+                  <strong>3 segment streams</strong>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <canvas id="scanCanvas" width="1024" height="768"></canvas>
+
+          <section class="control-block meter-block">
+            <div class="section-title">
+              <span>Feature mapper</span>
+              <small>Geometry features are mapped into the noise engines every frame.</small>
+            </div>
+            <div class="stat-grid">
+              <div class="stat-card"><span>density</span><strong id="featureDensityValue">0.00</strong></div>
+              <div class="stat-card"><span>toggleRate</span><strong id="featureToggleRateValue">0.00</strong></div>
+              <div class="stat-card"><span>complexity</span><strong id="featureComplexityValue">0.00</strong></div>
+              <div class="stat-card"><span>edgeIntensity</span><strong id="featureEdgeIntensityValue">0.00</strong></div>
+              <div class="stat-card"><span>localContrast</span><strong id="featureLocalContrastValue">0.00</strong></div>
+              <div class="stat-card"><span>edgeCount</span><strong id="featureEdgeCountValue">0.00</strong></div>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="../src/bootstrap-20260524.js"></script>
+  </body>
+</html>
