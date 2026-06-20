@@ -20,6 +20,7 @@ import { RitualPercussion } from "./audio/engines/ritual-percussion.js?v=2026052
 import { createProcessingBridge } from "./net/processing-bridge.js?v=20260524-cellnoise-02";
 
 const SOURCE_PRESETS = [
+  { label: "spiral-aloe.png", url: "./assets/spiral-aloe.png" },
   { label: "spiral-phyllotaxis.svg", url: "./assets/spiral-phyllotaxis.svg" },
   { label: "cell2.vector.svg", url: "./assets/cell2.vector.svg" },
   { label: "cells_lithocyst_001.svg", url: "./assets/cells_lithocyst_001.svg" },
