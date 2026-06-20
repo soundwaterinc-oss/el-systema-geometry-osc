@@ -424,12 +424,17 @@ select {
   flex: 1 1 0;
 }
 
+/* Source preview removed — the scan field is the whole stage, shown square. */
 .stage-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 0.36fr) minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 8px;
   min-height: 0;
   overflow: hidden;
+}
+
+.source-stage {
+  display: none;
 }
 
 .source-stage,
@@ -439,11 +444,7 @@ select {
 }
 
 .source-stage {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px;
-  min-height: 0;
-  overflow: hidden;
+  display: none; /* source preview removed — scan field is the whole stage */
 }
 .source-stage-body {
   min-height: 0;
@@ -531,6 +532,9 @@ select {
   overflow: hidden;
 }
 
+/* The scan field is shown square and as large as the stage height allows,
+   centred — scrolling is fine if it overflows. The stack fills the area; the
+   canvases inside are the square (sized by height), reliably centred. */
 .canvas-stack {
   position: relative;
   width: 100%;
@@ -541,9 +545,12 @@ select {
 #scanCanvas,
 #fieldCanvas {
   position: absolute;
-  inset: 0;
-  width: 100%;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   height: 100%;
+  aspect-ratio: 1 / 1;
+  max-width: 100%;
   display: block;
   border-radius: var(--r-md);
 }

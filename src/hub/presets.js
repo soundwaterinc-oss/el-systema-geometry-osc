@@ -25,7 +25,7 @@ export const DEFAULT_SETTINGS = {
   naturePreset: 'coral',
   fxMode: 'flow',
   fxWarp: 0.06,
-  fxColorMix: 0.6,
+  fxColorMix: 0,
 };
 
 const ENUMS = {

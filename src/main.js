@@ -13,7 +13,7 @@ import { createGlitch } from "./visual/glitch.js?v=20260524-cellnoise-02";
 import { createReactionDiffusion } from "./visual/reaction-diffusion.js?v=20260524-cellnoise-02";
 import { createWaveField } from "./visual/wave-field.js?v=20260620-nature-wave-01";
 import { createDiffuseField } from "./visual/diffuse-field.js?v=20260620-nature-diffuse-01";
-import { createGenerativeRenderer, GENERATIVE_FX_MODES } from "./visual/generative-gl.js?v=20260620-genfx-02";
+import { createGenerativeRenderer, GENERATIVE_FX_MODES } from "./visual/generative-gl.js?v=20260620-genfx-03";
 import { capturePreset, validatePreset, normalizeSettings } from "./hub/presets.js?v=20260524-cellnoise-02";
 import { createFieldColorizer } from "./visual/field-colorize.js?v=20260524-cellnoise-02";
 import { createFieldState } from "./data/field-state.js?v=20260524-cellnoise-02";
@@ -167,7 +167,7 @@ const state = {
   gl: null, // lazy WebGL2 generative renderer (null until first display)
   fxMode: "flow", // generative FX: flow | refract | kaleido | contour
   fxWarp: 0.06,
-  fxColorMix: 0.6,
+  fxColorMix: 0, // off by default — the field warps the image, doesn't colour-cover it
   morphPhase: 0, // slow spin of the source plant in the generative composite
   colorizer: createFieldColorizer(),
   evolveCanvas: null,

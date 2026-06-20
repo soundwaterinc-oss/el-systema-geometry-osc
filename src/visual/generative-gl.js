@@ -94,13 +94,15 @@ void main() {
     col = vec3(rr, gg, bb);
   }
 
-  // Evolving recolour: tint toward the live field palette by field intensity,
-  // smoothly (not a lo-fi screen) so the source keeps "re-colouring" alive.
+  // Iridescent glaze (not a covering fill): take only the field's *hue*
+  // deviation and let it catch the plant's own light — bright structure picks
+  // up the colour, shadows stay the source. Colours the image for ANY palette
+  // without ever painting a flat stain over it.
   vec3 fcol = texture(uField, p).rgb;
-  float fi = luma(fcol);
-  vec3 tinted = col * (0.4 + 0.6 * fcol / max(fi, 0.001)) + fcol * 0.22;
-  col = mix(col, tinted, clamp(uColorMix * fi, 0.0, 1.0));
-  col += 0.04 * uFieldRgb * breath;
+  float fi = max(luma(fcol), 0.001);
+  vec3 hue = fcol / fi - 1.0;          // chroma deviation, ~0 on greys
+  float pl = luma(col);                // plant luminance
+  col += hue * uColorMix * pl * (0.45 + 0.25 * breath);
 
   frag = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
