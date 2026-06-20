@@ -628,11 +628,13 @@ select {
    two internal columns — kills the wasted half-rows a tall single-column module
    would leave beside a short one, so the whole rack packs into the viewport. */
 .control-panel[data-panel="pulsenoise"],
-.control-panel[data-panel="mix"] {
+.control-panel[data-panel="mix"],
+.control-panel[data-panel="nature"] {
   grid-column: 1 / -1;
 }
 .control-panel[data-panel="pulsenoise"] .slider-grid.dense,
-.control-panel[data-panel="mix"] .slider-grid.dense {
+.control-panel[data-panel="mix"] .slider-grid.dense,
+.control-panel[data-panel="nature"] .slider-grid.dense {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 

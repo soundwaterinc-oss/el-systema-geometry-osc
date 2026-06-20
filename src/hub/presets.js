@@ -23,12 +23,16 @@ export const DEFAULT_SETTINGS = {
   natureOn: false,
   natureFunction: 'rd',
   naturePreset: 'coral',
+  fxMode: 'flow',
+  fxWarp: 0.06,
+  fxColorMix: 0.6,
 };
 
 const ENUMS = {
   noiseColor: new Set(['white', 'pink', 'digital']),
-  natureFunction: new Set(['rd', 'wave']),
+  natureFunction: new Set(['rd', 'wave', 'diffuse']),
   naturePreset: new Set(['coral', 'mitosis', 'waves']),
+  fxMode: new Set(['flow', 'refract', 'kaleido', 'contour']),
 };
 
 function clamp(value, min, max) {
@@ -85,6 +89,9 @@ export function normalizeSettings(partial) {
     natureOn: normalizeBoolean(input.natureOn, DEFAULT_SETTINGS.natureOn),
     natureFunction: normalizeEnum(input.natureFunction, DEFAULT_SETTINGS.natureFunction, ENUMS.natureFunction),
     naturePreset: normalizeEnum(input.naturePreset, DEFAULT_SETTINGS.naturePreset, ENUMS.naturePreset),
+    fxMode: normalizeEnum(input.fxMode, DEFAULT_SETTINGS.fxMode, ENUMS.fxMode),
+    fxWarp: normalizeNumber(input.fxWarp, DEFAULT_SETTINGS.fxWarp, 0, 0.2),
+    fxColorMix: normalizeNumber(input.fxColorMix, DEFAULT_SETTINGS.fxColorMix, 0, 1),
   };
 }
 

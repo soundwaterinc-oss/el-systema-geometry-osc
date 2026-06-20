@@ -12,6 +12,8 @@ import { spawnFromScan, stepParticles, drawParticles } from "./visual/field-part
 import { createGlitch } from "./visual/glitch.js?v=20260524-cellnoise-02";
 import { createReactionDiffusion } from "./visual/reaction-diffusion.js?v=20260524-cellnoise-02";
 import { createWaveField } from "./visual/wave-field.js?v=20260620-nature-wave-01";
+import { createDiffuseField } from "./visual/diffuse-field.js?v=20260620-nature-diffuse-01";
+import { createGenerativeRenderer, GENERATIVE_FX_MODES } from "./visual/generative-gl.js?v=20260620-genfx-02";
 import { capturePreset, validatePreset, normalizeSettings } from "./hub/presets.js?v=20260524-cellnoise-02";
 import { createFieldColorizer } from "./visual/field-colorize.js?v=20260524-cellnoise-02";
 import { createFieldState } from "./data/field-state.js?v=20260524-cellnoise-02";
@@ -36,10 +38,10 @@ const MODES = ["studio", "perform", "patch"];
 const MODE_PANELS = {
   // studio = the full lab: every panel shown (no allow-list needed).
   studio: null,
-  // perform = live gestures: transport, source, tuning, nature field, master mix.
-  perform: ["transport", "source", "okinawa", "nature", "mix"],
-  // patch = sound design: presets, motion, tuning, the full audio voice chain.
-  patch: ["transport", "presets", "geometry", "okinawa", "mix", "pulsenoise", "degradation"],
+  // perform = live gestures: transport, source, nature field FX, master mix.
+  perform: ["transport", "source", "nature", "mix"],
+  // patch = sound design: presets, motion, the full audio voice chain.
+  patch: ["transport", "presets", "geometry", "mix", "pulsenoise", "degradation"],
 };
 const MODE_KEY = "el-systema-mode";
 const DEFAULT_PRESET = SOURCE_PRESETS[0].url;
@@ -75,6 +77,11 @@ const elements = {
   natureFunction: document.querySelector("#natureFunction"),
   naturePreset: document.querySelector("#naturePreset"),
   natureValue: document.querySelector("#natureValue"),
+  fxMode: document.querySelector("#fxMode"),
+  fxWarp: document.querySelector("#fxWarp"),
+  fxWarpValue: document.querySelector("#fxWarpValue"),
+  fxColorMix: document.querySelector("#fxColorMix"),
+  fxColorMixValue: document.querySelector("#fxColorMixValue"),
   presetName: document.querySelector("#presetName"),
   presetSave: document.querySelector("#presetSave"),
   presetList: document.querySelector("#presetList"),
@@ -155,7 +162,12 @@ const state = {
   glitch: createGlitch(),
   rd: createReactionDiffusion({ size: 320 }),
   wave: createWaveField({ size: 320 }),
-  fieldKind: "rd", // which natural function drives the nature field: "rd" | "wave"
+  diffuse: createDiffuseField({ size: 320 }),
+  fieldKind: "rd", // natural function driving the field: "rd" | "wave" | "diffuse"
+  gl: null, // lazy WebGL2 generative renderer (null until first display)
+  fxMode: "flow", // generative FX: flow | refract | kaleido | contour
+  fxWarp: 0.06,
+  fxColorMix: 0.6,
   morphPhase: 0, // slow spin of the source plant in the generative composite
   colorizer: createFieldColorizer(),
   evolveCanvas: null,
@@ -421,10 +433,14 @@ function gatherSettings() {
   const s = {};
   for (const id of PRESET_RANGE_ELS) s[id] = Number(elements[id]?.value);
   s.noiseColor = elements.noiseColor?.value ?? "digital";
-  s.ryukyuOn = !!elements.ryukyuToggle?.checked;
+  // Ryukyu is the only tuning now (always on); keep the flag for preset compat.
+  s.ryukyuOn = elements.ryukyuToggle ? !!elements.ryukyuToggle.checked : state.ryukyuOn;
   s.natureOn = !!elements.natureToggle?.checked;
   s.natureFunction = elements.natureFunction?.value ?? "rd";
   s.naturePreset = elements.naturePreset?.value ?? "coral";
+  s.fxMode = elements.fxMode?.value ?? state.fxMode;
+  s.fxWarp = elements.fxWarp ? Number(elements.fxWarp.value) : state.fxWarp;
+  s.fxColorMix = elements.fxColorMix ? Number(elements.fxColorMix.value) : state.fxColorMix;
   return normalizeSettings(s);
 }
 
@@ -453,6 +469,18 @@ function applySettings(raw) {
   if (elements.naturePreset) {
     elements.naturePreset.value = s.naturePreset;
     elements.naturePreset.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  if (elements.fxMode) {
+    elements.fxMode.value = s.fxMode;
+    elements.fxMode.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  if (elements.fxWarp) {
+    elements.fxWarp.value = String(s.fxWarp);
+    elements.fxWarp.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  if (elements.fxColorMix) {
+    elements.fxColorMix.value = String(s.fxColorMix);
+    elements.fxColorMix.dispatchEvent(new Event("input", { bubbles: true }));
   }
   if (elements.natureToggle) {
     elements.natureToggle.checked = s.natureOn;
@@ -573,25 +601,38 @@ async function importPresets(file) {
 /** The natural function currently driving the nature field: reaction-diffusion
  * or the wave equation. Both share the same simulator API. */
 function activeField() {
-  return state.fieldKind === "wave" ? state.wave : state.rd;
+  if (state.fieldKind === "wave") return state.wave;
+  if (state.fieldKind === "diffuse") return state.diffuse;
+  return state.rd;
 }
 
-/** Bind the natural-field toggle, function (RD / wave) and preset. */
+const FIELD_KINDS = ["rd", "wave", "diffuse"];
+
+/** Apply a preset name to all natural functions so switching stays seamless. */
+function setAllFieldPresets(name) {
+  const preset = name || "coral";
+  state.rd.setPreset(preset);
+  state.wave.setPreset(preset);
+  state.diffuse.setPreset(preset);
+}
+
+/** Bind the natural-field toggle, function (rd/wave/diffuse), preset and the
+ * generative FX controls (mode / warp / colour-mix). */
 function setupNatureControls() {
   if (elements.natureToggle) {
     elements.natureToggle.checked = state.natureOn;
     elements.natureToggle.addEventListener("change", () => {
       state.natureOn = elements.natureToggle.checked;
-      // Re-seed and re-point the scans for the new source.
       refreshScansFromSource();
       updateNatureLabel();
       renderFrame();
     });
   }
   if (elements.natureFunction) {
-    state.fieldKind = elements.natureFunction.value === "wave" ? "wave" : "rd";
+    const read = () => (FIELD_KINDS.includes(elements.natureFunction.value) ? elements.natureFunction.value : "rd");
+    state.fieldKind = read();
     elements.natureFunction.addEventListener("change", () => {
-      state.fieldKind = elements.natureFunction.value === "wave" ? "wave" : "rd";
+      state.fieldKind = read();
       // Switching the natural function re-seeds the newly active field from the
       // current plant and re-points the scans at its evolving image.
       refreshScansFromSource();
@@ -601,13 +642,31 @@ function setupNatureControls() {
   }
   if (elements.naturePreset) {
     elements.naturePreset.addEventListener("change", () => {
-      // Keep both functions on the same preset so switching is seamless.
-      state.rd.setPreset(elements.naturePreset.value);
-      state.wave.setPreset(elements.naturePreset.value);
+      setAllFieldPresets(elements.naturePreset.value);
       updateNatureLabel();
     });
-    state.rd.setPreset(elements.naturePreset.value || "coral");
-    state.wave.setPreset(elements.naturePreset.value || "coral");
+    setAllFieldPresets(elements.naturePreset.value);
+  }
+  // Generative FX mode (how the field transforms the image on the GPU).
+  if (elements.fxMode) {
+    const readMode = () => (GENERATIVE_FX_MODES.includes(elements.fxMode.value) ? elements.fxMode.value : "flow");
+    state.fxMode = readMode();
+    elements.fxMode.addEventListener("change", () => {
+      state.fxMode = readMode();
+      updateNatureLabel();
+    });
+  }
+  if (elements.fxWarp) {
+    bindRange(elements.fxWarp, elements.fxWarpValue, {
+      format: (v) => v.toFixed(3),
+      onChange: (v) => { state.fxWarp = v; },
+    });
+  }
+  if (elements.fxColorMix) {
+    bindRange(elements.fxColorMix, elements.fxColorMixValue, {
+      format: (v) => v.toFixed(2),
+      onChange: (v) => { state.fxColorMix = v; },
+    });
   }
   updateNatureLabel();
 }
@@ -619,8 +678,8 @@ function updateNatureLabel() {
     return;
   }
   const p = activeField().getParams?.() ?? {};
-  const kind = state.fieldKind === "wave" ? "wave" : "rd";
-  elements.natureValue.textContent = `${kind} · ${p.preset ?? "on"}`;
+  const gpu = state.gl?.isAvailable ? state.fxMode : "2d";
+  elements.natureValue.textContent = `${state.fieldKind} · ${p.preset ?? "on"} · ${gpu}`;
 }
 
 /** Bind the Okinawa (Ryukyu) tuning toggle. */
@@ -780,6 +839,20 @@ function ensureSource() {
 
 const NATURE_PALETTE = { coral: "coral", mitosis: "moss", waves: "ocean" };
 
+/** Lazily create the WebGL2 generative renderer and keep it sized to the stage.
+ * Returns an object with isAvailable=false if WebGL2 is unsupported. */
+function ensureGenerative(w, h) {
+  if (state.gl === null) {
+    try {
+      state.gl = createGenerativeRenderer({ width: w, height: h });
+    } catch (_) {
+      state.gl = { isAvailable: false, render() {}, setSize() {} };
+    }
+  }
+  if (state.gl && state.gl.isAvailable) state.gl.setSize(w, h);
+  return state.gl;
+}
+
 /** The image shown on the scan stage. With nature off it is the pristine plant.
  * With nature on it is a generative composite: the plant slowly spins and
  * breathes underneath, and the high-res evolving field is colourised and
@@ -811,11 +884,26 @@ function displaySource() {
   const intensity = clamp01(0.5 + 0.3 * breathWave * state.breath.complexity + 0.3 * state.earth.solarWind);
   state.colorizer.colorize(state.evolveCanvas, state.colorCanvas, { palette, intensity });
 
-  // 3. Composite for a wet, symbiote-like sheen while keeping the plant always
-  //    legible: spinning plant base, a soft bloom of the field (blurred, screen)
-  //    for the liquid glow, then the sharp field screened lightly on top. The
-  //    overlay stays translucent (≈0.2..0.45) so the source reads through at all
-  //    times, then the plant is re-asserted faintly so it never disappears.
+  // 3a. Modern path (GPU): the field flow *transforms* the plant on the GPU —
+  //     domain-warp / refract / kaleido / contour — instead of being layered
+  //     over it. The plant is never covered; it morphs and re-colours.
+  const gl = ensureGenerative(w, h);
+  if (gl && gl.isAvailable) {
+    const rgb = (FIELD_RGB[palette] ?? FIELD_RGB.moss).split(",").map((n) => Number(n) / 255);
+    gl.render(state.morphCanvas, state.colorCanvas, {
+      time: state.morphPhase,
+      breath: breathWave,
+      warp: state.fxWarp,
+      colorMix: state.fxColorMix,
+      mode: state.fxMode,
+      fieldRgb: rgb,
+    });
+    return gl.canvas;
+  }
+
+  // 3b. Fallback (no WebGL2): the earlier 2D translucent composite, plant kept
+  //     legible — a soft field bloom, the sharp field screened lightly, then the
+  //     plant re-asserted faintly so it never disappears.
   const dctx = state.displayCanvas.getContext("2d");
   const sharp = clamp01(0.2 + 0.25 * breathWave * (0.5 + 0.5 * state.breath.complexity));
   dctx.save();
@@ -823,16 +911,13 @@ function displaySource() {
   dctx.globalAlpha = 1;
   dctx.clearRect(0, 0, w, h);
   dctx.drawImage(state.morphCanvas, 0, 0, w, h);
-  // Wet bloom — a blurred copy of the field added as a glossy halo.
   dctx.globalCompositeOperation = "screen";
   dctx.filter = `blur(${Math.round(w / 220)}px)`;
   dctx.globalAlpha = sharp * 0.7;
   dctx.drawImage(state.colorCanvas, 0, 0, w, h);
   dctx.filter = "none";
-  // Sharp field, kept translucent so the plant structure shows through.
   dctx.globalAlpha = sharp;
   dctx.drawImage(state.colorCanvas, 0, 0, w, h);
-  // Re-assert the plant faintly so it is always visible over the field.
   dctx.globalCompositeOperation = "source-over";
   dctx.globalAlpha = 0.22;
   dctx.drawImage(state.morphCanvas, 0, 0, w, h);
@@ -1090,13 +1175,18 @@ function natureFrame() {
     kind: state.fieldKind,
     preset: p.preset ?? "default",
     feedback: p.feedback ?? 0,
-    // reaction-diffusion params (undefined for wave)
+    fx: { mode: state.fxMode, warp: state.fxWarp, colorMix: state.fxColorMix, gpu: !!state.gl?.isAvailable },
+    // reaction-diffusion params
     feed: p.feed ?? 0,
     kill: p.kill ?? 0,
-    // wave params (undefined for reaction-diffusion)
+    // wave params
     c2: p.c2 ?? 0,
     damping: p.damping ?? 0,
     forcing: p.forcing ?? 0,
+    // diffuse params
+    rate: p.rate ?? 0,
+    decay: p.decay ?? 0,
+    inject: p.inject ?? 0,
   };
 }
 

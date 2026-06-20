@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CellNoiseGenerator</title>
-    <link rel="stylesheet" href="./styles.css?v=20260620-compact-02" />
+    <link rel="stylesheet" href="./styles.css?v=20260620-genfx-03" />
   </head>
   <body>
     <main class="app-shell">
@@ -108,42 +108,52 @@
             </div>
           </section>
 
-          <section class="control-panel" data-panel="okinawa">
-            <div class="section-heading">
-              <span>Okinawa · 沖縄</span>
-              <small>Ryukyu tuning, transposed by the living earth.</small>
-            </div>
-            <label class="slider compact toggle-row">
-              <span>琉球音階 Ryukyu</span>
-              <input id="ryukyuToggle" type="checkbox" checked />
-              <strong id="scaleValue">Ryukyu</strong>
-            </label>
-          </section>
-
           <section class="control-panel" data-panel="nature">
             <div class="section-heading">
-              <span>Nature Field · 自然場</span>
+              <span>Nature Field FX · 自然場</span>
               <small id="natureValue">off</small>
             </div>
             <label class="slider compact toggle-row">
               <span>自然場 Nature Field</span>
               <input id="natureToggle" type="checkbox" />
             </label>
-            <label class="slider compact select-wrap">
-              <span>function 自然関数</span>
-              <select id="natureFunction">
-                <option value="rd" selected>reaction-diffusion 反応拡散</option>
-                <option value="wave">wave 波動</option>
-              </select>
-            </label>
-            <label class="slider compact select-wrap">
-              <span>pattern</span>
-              <select id="naturePreset">
-                <option value="coral" selected>coral</option>
-                <option value="mitosis">mitosis</option>
-                <option value="waves">waves</option>
-              </select>
-            </label>
+            <div class="slider-grid dense">
+              <label class="slider compact select-wrap">
+                <span>function 自然関数</span>
+                <select id="natureFunction">
+                  <option value="rd" selected>reaction-diffusion 反応拡散</option>
+                  <option value="wave">wave 波動</option>
+                  <option value="diffuse">diffuse 拡散ブルーム</option>
+                </select>
+              </label>
+              <label class="slider compact select-wrap">
+                <span>pattern</span>
+                <select id="naturePreset">
+                  <option value="coral" selected>coral</option>
+                  <option value="mitosis">mitosis</option>
+                  <option value="waves">waves</option>
+                </select>
+              </label>
+              <label class="slider compact select-wrap">
+                <span>FX mode 変換</span>
+                <select id="fxMode">
+                  <option value="flow" selected>flow ドメインワープ</option>
+                  <option value="refract">refract 屈折</option>
+                  <option value="kaleido">kaleido 万華鏡</option>
+                  <option value="contour">contour 等高線</option>
+                </select>
+              </label>
+              <label class="slider compact">
+                <span>warp 変形量</span>
+                <input id="fxWarp" type="range" min="0" max="0.2" step="0.001" value="0.06" />
+                <strong id="fxWarpValue">0.060</strong>
+              </label>
+              <label class="slider compact">
+                <span>colorMix 着色</span>
+                <input id="fxColorMix" type="range" min="0" max="1" step="0.01" value="0.6" />
+                <strong id="fxColorMixValue">0.60</strong>
+              </label>
+            </div>
           </section>
 
           <section class="control-panel" data-panel="mix">
