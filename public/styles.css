@@ -388,16 +388,20 @@ select {
 
 .status-card {
   flex: 1 1 auto;
-  min-width: 76px;
-  padding: 6px 10px;
+  min-width: 70px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 9px;
   border-radius: var(--r-sm);
   border: 1px solid var(--line-soft);
   background: rgba(14, 20, 27, 0.82);
 }
 
 .status-card span {
-  font-size: 0.62rem;
-  letter-spacing: 0.14em;
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -409,9 +413,8 @@ select {
 }
 
 .status-card strong {
-  display: block;
-  margin-top: 2px;
-  font-size: 0.86rem;
+  margin-top: 0;
+  font-size: 0.82rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -705,34 +708,42 @@ select {
   color: rgba(150, 230, 200, 0.75);
 }
 
+/* Thin metrics strip — keep the readouts but give the square all the height. */
 .metrics-panel {
   display: grid;
-  gap: 7px;
+  gap: 4px;
+  padding: 6px 9px;
+}
+.metrics-panel > .section-heading {
+  display: none; /* the values speak for themselves; reclaim the row */
 }
 
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 7px;
+  gap: 6px;
 }
 
 .metric-card {
-  padding: 6px 9px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 8px;
   border-radius: var(--r-sm);
   border: 1px solid var(--line-soft);
   background: rgba(14, 20, 27, 0.74);
 }
 
 .metric-card span {
-  font-size: 0.6rem;
-  letter-spacing: 0.12em;
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
 .metric-card strong {
-  display: block;
-  margin-top: 5px;
-  font-size: 0.96rem;
+  margin-top: 0;
+  font-size: 0.82rem;
   font-variant-numeric: tabular-nums;
 }
 

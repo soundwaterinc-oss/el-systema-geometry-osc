@@ -1440,8 +1440,12 @@ function renderFrame() {
     ctx.globalAlpha = 1;
   }
 
-  drawBreathingHalo(ctx, width, height);
-  drawOverlayGrid(ctx, width, height);
+  // With the GPU generative image active it is the artwork — skip the legacy 2D
+  // background washes (additive halo + grid) that blew it out to a cream stain.
+  if (!state.natureOn) {
+    drawBreathingHalo(ctx, width, height);
+    drawOverlayGrid(ctx, width, height);
+  }
 
   if (state.scans.length) {
     for (const scan of state.scans) {
@@ -1492,6 +1496,14 @@ function renderField() {
   const height = canvas.height;
 
   if (!state.running && state.particles.length === 0) {
+    ctx.clearRect(0, 0, width, height);
+    return;
+  }
+
+  // GPU generative image is the art: keep the overlay fully clear so the
+  // particle afterimage never accumulates into a white wash over it. The scan
+  // expression stays as the crisp scan lines drawn on the layer beneath.
+  if (state.natureOn) {
     ctx.clearRect(0, 0, width, height);
     return;
   }
