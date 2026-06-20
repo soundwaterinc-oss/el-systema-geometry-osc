@@ -50,16 +50,27 @@ select {
   font: inherit;
 }
 
+/* Viewport-locked chassis: the whole instrument fits one screen, no page
+   scroll — built for screen-share live sets. */
 .app-shell {
-  width: min(1640px, calc(100% - 24px));
-  margin: 12px auto 18px;
+  width: min(1900px, calc(100% - 14px));
+  height: calc(100vh - 16px);
+  margin: 6px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  overflow: hidden;
 }
 
 .studio-frame {
   display: grid;
-  grid-template-columns: minmax(280px, 330px) minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
+  /* Wide enough that each of the rail's two columns (~210px) holds a real
+     control without overflowing into its neighbour. */
+  grid-template-columns: minmax(412px, 452px) minmax(0, 1fr);
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .panel {
@@ -72,24 +83,29 @@ select {
   backdrop-filter: blur(14px);
 }
 
+/* A robust 2-column grid packs the modules into ~half the height so the rail
+   fits the viewport; hidden (mode-curated) panels simply drop out. Grid (not
+   CSS multicol) so nothing can spill into phantom columns over the stage. */
 .sidebar {
-  position: sticky;
-  top: 12px;
   display: grid;
-  gap: 9px;
-  padding: 12px;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: min-content;
+  align-content: start;
+  gap: 7px;
+  padding: 9px;
   background:
     linear-gradient(180deg, rgba(var(--field-rgb), 0.04), transparent 22%),
     var(--panel-strong);
-  max-height: calc(100vh - 24px);
+  height: 100%;
   overflow: auto;
 }
 
 /* Compact instrument nameplate — pro gear doesn't waste a screen on a title. */
 .sidebar-head {
+  grid-column: 1 / -1;
   display: grid;
-  gap: 4px;
-  padding: 2px 2px 8px;
+  gap: 3px;
+  padding: 1px 2px 6px;
   border-bottom: 1px solid var(--line-soft);
 }
 
@@ -142,8 +158,9 @@ h2 {
 .control-panel {
   position: relative;
   display: grid;
-  gap: 8px;
-  padding: 10px 11px;
+  gap: 6px;
+  padding: 8px 9px;
+  align-self: start;
   border: 1px solid var(--line-soft);
   border-radius: var(--r-md);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.008));
@@ -254,7 +271,7 @@ button.primary {
 .slider-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  gap: 5px;
 }
 
 .slider-grid.dense {
@@ -264,8 +281,8 @@ button.primary {
 /* Fader row: NAME ............ value  /  [============ track ============] */
 .slider {
   display: grid;
-  gap: 5px;
-  padding: 7px 9px;
+  gap: 3px;
+  padding: 5px 8px;
   border: 1px solid var(--line-soft);
   border-radius: var(--r-sm);
   background: var(--panel-soft);
@@ -338,41 +355,42 @@ select {
   font-size: 0.74rem;
 }
 
-/* ---- stage (right) ---- */
+/* ---- stage (right): slim status strip · canvas (fills) · metrics strip ---- */
 .stage {
   display: grid;
-  gap: 12px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 7px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .stage-top {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr);
-  gap: 14px;
-  padding: 14px 16px;
+  display: block;
+  padding: 8px 12px;
   background:
-    radial-gradient(circle at top right, rgba(127, 232, 255, 0.08), transparent 34%),
-    radial-gradient(circle at bottom left, rgba(var(--field-rgb), 0.06), transparent 26%),
+    radial-gradient(circle at top right, rgba(127, 232, 255, 0.08), transparent 40%),
+    radial-gradient(circle at bottom left, rgba(var(--field-rgb), 0.06), transparent 30%),
     var(--panel);
 }
 
+/* The prose intro is dead weight in a live set — drop it, keep the meters. */
 .stage-copy {
-  display: grid;
-  gap: 7px;
-  align-content: start;
-}
-.stage-copy .lede {
-  max-width: 56ch;
+  display: none;
 }
 
 .stage-status {
-  display: grid;
-  gap: 8px;
-  align-content: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 7px;
 }
 
 .status-card {
-  padding: 9px 11px;
-  border-radius: var(--r-md);
+  flex: 1 1 auto;
+  min-width: 76px;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
   border: 1px solid var(--line-soft);
   background: rgba(14, 20, 27, 0.82);
 }
@@ -384,6 +402,7 @@ select {
 }
 
 .status-card.major {
+  flex: 2 1 120px;
   background:
     linear-gradient(180deg, rgba(var(--field-rgb), calc(0.08 + var(--breath) * 0.12)), rgba(14, 20, 27, 0.9));
   border-color: rgba(var(--field-rgb), calc(0.22 + var(--breath) * 0.3));
@@ -391,37 +410,50 @@ select {
 
 .status-card strong {
   display: block;
-  margin-top: 5px;
-  font-size: 0.95rem;
+  margin-top: 2px;
+  font-size: 0.86rem;
   font-variant-numeric: tabular-nums;
 }
 
 .status-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  display: flex;
+  flex: 3 1 auto;
+  gap: 7px;
+}
+.status-grid .status-card {
+  flex: 1 1 0;
 }
 
 .stage-grid {
   display: grid;
-  grid-template-columns: minmax(300px, 0.46fr) minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: minmax(220px, 0.36fr) minmax(0, 1fr);
+  gap: 8px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .source-stage,
 .scan-stage,
 .metrics-panel {
-  padding: 12px;
+  padding: 9px;
 }
 
 .source-stage {
   display: grid;
-  gap: 10px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  min-height: 0;
+  overflow: hidden;
+}
+.source-stage-body {
+  min-height: 0;
 }
 
 .source-stage-body {
   display: grid;
-  gap: 9px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 8px;
+  min-height: 0;
 }
 
 .source-image-wrap {
@@ -432,13 +464,13 @@ select {
   background:
     radial-gradient(circle at center, rgba(127, 232, 255, 0.08), transparent 42%),
     #030507;
-  min-height: 300px;
+  min-height: 140px;
+  height: 100%;
 }
 
 #sourcePreviewImage {
   width: 100%;
   height: 100%;
-  min-height: 300px;
   display: block;
   object-fit: cover;
 }
@@ -493,14 +525,17 @@ select {
 
 .scan-stage {
   display: grid;
-  gap: 10px;
-  min-height: 100%;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .canvas-stack {
   position: relative;
   width: 100%;
-  min-height: 640px;
+  height: 100%;
+  min-height: 0;
 }
 
 #scanCanvas,
@@ -536,8 +571,8 @@ select {
   align-items: center;
   gap: 14px;
   flex-wrap: wrap;
-  padding: 8px 14px;
-  margin-bottom: 10px;
+  padding: 7px 14px;
+  flex-shrink: 0;
   border-radius: var(--r-md);
   border: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(18, 28, 36, 0.92), rgba(10, 16, 22, 0.92));
@@ -589,6 +624,18 @@ select {
   display: none;
 }
 
+/* Slider-heavy modules span the full rail width and lay their faders out in
+   two internal columns — kills the wasted half-rows a tall single-column module
+   would leave beside a short one, so the whole rack packs into the viewport. */
+.control-panel[data-panel="pulsenoise"],
+.control-panel[data-panel="mix"] {
+  grid-column: 1 / -1;
+}
+.control-panel[data-panel="pulsenoise"] .slider-grid.dense,
+.control-panel[data-panel="mix"] .slider-grid.dense {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .hub-chip {
   display: inline-flex;
   align-items: baseline;
@@ -613,6 +660,15 @@ select {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+}
+
+.toggle-row > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .toggle-row input[type="checkbox"] {
@@ -628,7 +684,7 @@ select {
 
 /* Live planetary state — each session inherits a different earth bias. */
 .earth-grid {
-  margin-top: 6px;
+  margin-top: 0;
 }
 
 .earth-card {
@@ -642,18 +698,18 @@ select {
 
 .metrics-panel {
   display: grid;
-  gap: 10px;
+  gap: 7px;
 }
 
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 8px;
+  gap: 7px;
 }
 
 .metric-card {
-  padding: 9px 10px;
-  border-radius: var(--r-md);
+  padding: 6px 9px;
+  border-radius: var(--r-sm);
   border: 1px solid var(--line-soft);
   background: rgba(14, 20, 27, 0.74);
 }

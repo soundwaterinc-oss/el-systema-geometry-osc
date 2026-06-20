@@ -152,8 +152,8 @@ const state = {
   aggregate: null,
   breath: { phase: 0, complexity: 0, energy: 0 },
   glitch: createGlitch(),
-  rd: createReactionDiffusion({ size: 256 }),
-  wave: createWaveField({ size: 256 }),
+  rd: createReactionDiffusion({ size: 320 }),
+  wave: createWaveField({ size: 320 }),
   fieldKind: "rd", // which natural function drives the nature field: "rd" | "wave"
   morphPhase: 0, // slow spin of the source plant in the generative composite
   colorizer: createFieldColorizer(),
@@ -810,18 +810,33 @@ function displaySource() {
   const intensity = clamp01(0.5 + 0.3 * breathWave * state.breath.complexity + 0.3 * state.earth.solarWind);
   state.colorizer.colorize(state.evolveCanvas, state.colorCanvas, { palette, intensity });
 
-  // 3. Composite: spinning plant base, then the field screened over it so the
-  //    plant glows through. Overlay opacity breathes between subtle and vivid.
+  // 3. Composite for a wet, symbiote-like sheen while keeping the plant always
+  //    legible: spinning plant base, a soft bloom of the field (blurred, screen)
+  //    for the liquid glow, then the sharp field screened lightly on top. The
+  //    overlay stays translucent (≈0.2..0.45) so the source reads through at all
+  //    times, then the plant is re-asserted faintly so it never disappears.
   const dctx = state.displayCanvas.getContext("2d");
+  const sharp = clamp01(0.2 + 0.25 * breathWave * (0.5 + 0.5 * state.breath.complexity));
   dctx.save();
   dctx.globalCompositeOperation = "source-over";
   dctx.globalAlpha = 1;
   dctx.clearRect(0, 0, w, h);
   dctx.drawImage(state.morphCanvas, 0, 0, w, h);
+  // Wet bloom — a blurred copy of the field added as a glossy halo.
   dctx.globalCompositeOperation = "screen";
-  dctx.globalAlpha = clamp01(0.3 + 0.28 * breathWave * (0.5 + 0.5 * state.breath.complexity));
+  dctx.filter = `blur(${Math.round(w / 220)}px)`;
+  dctx.globalAlpha = sharp * 0.7;
   dctx.drawImage(state.colorCanvas, 0, 0, w, h);
+  dctx.filter = "none";
+  // Sharp field, kept translucent so the plant structure shows through.
+  dctx.globalAlpha = sharp;
+  dctx.drawImage(state.colorCanvas, 0, 0, w, h);
+  // Re-assert the plant faintly so it is always visible over the field.
+  dctx.globalCompositeOperation = "source-over";
+  dctx.globalAlpha = 0.22;
+  dctx.drawImage(state.morphCanvas, 0, 0, w, h);
   dctx.restore();
+  dctx.filter = "none";
   return state.displayCanvas;
 }
 
@@ -963,10 +978,13 @@ function stepScans(dt) {
     const RD_DT = 1 / 60;
     state.rdAccum += dt;
     let stepped = false;
-    let budget = 4; // cap catch-up so a long stall can't avalanche
+    // Bound per-frame field work at the higher (320) grid: fewer catch-up steps
+    // and fewer iterations keep a single frame from stalling on heavy machines —
+    // under load the field just evolves a touch slower, never freezes the loop.
+    let budget = 2;
     while (state.rdAccum >= RD_DT && budget-- > 0) {
       state.rdAccum -= RD_DT;
-      activeField().step(RD_DT, 8);
+      activeField().step(RD_DT, 6);
       stepped = true;
     }
     if (state.rdAccum > RD_DT) state.rdAccum = 0; // drop backlog beyond budget
