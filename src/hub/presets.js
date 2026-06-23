@@ -34,7 +34,7 @@ const ENUMS = {
   noiseColor: new Set(['white', 'pink', 'digital']),
   natureFunction: new Set(['rd', 'wave', 'diffuse']),
   naturePreset: new Set(['coral', 'mitosis', 'waves']),
-  fxMode: new Set(['flow', 'refract', 'kaleido', 'contour', 'mirror', 'slice', 'tile']),
+  fxMode: new Set(['flow', 'refract', 'kaleido', 'contour', 'mirror', 'slice', 'tile', 'twist', 'mosaic', 'posterize']),
 };
 
 function clamp(value, min, max) {

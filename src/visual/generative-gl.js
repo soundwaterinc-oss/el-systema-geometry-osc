@@ -69,6 +69,22 @@ vec2 tileFold(vec2 uv, float t) {
   return fract(c * 2.3 + 0.5 + 0.015 * t);
 }
 
+// Radial twist (swirl) — winds the material tighter toward the centre; breath
+// pumps the swirl. Fits the spiral source especially.
+vec2 twistFold(vec2 uv, float b) {
+  vec2 c = uv - 0.5;
+  float r = length(c);
+  float a = atan(c.y, c.x) + (0.55 - r) * (2.4 + 4.2 * b);
+  return vec2(cos(a), sin(a)) * r + 0.5;
+}
+
+// Mosaic — quantise UVs into cells (a blocky cut of the material); cell count
+// breathes.
+vec2 mosaicFold(vec2 uv, float b) {
+  float n = mix(26.0, 60.0, b);
+  return (floor(uv * n) + 0.5) / n;
+}
+
 void main() {
   vec2 uv = vUv;
   float breath = 0.5 + 0.5 * uBreath;
@@ -79,6 +95,8 @@ void main() {
   if (uMode == 2) base = kaleidoFold(uv, uTime);
   else if (uMode == 4) base = mirrorFold(uv, uTime);
   else if (uMode == 6) base = tileFold(uv, uTime);
+  else if (uMode == 7) base = twistFold(uv, breath);
+  else if (uMode == 8) base = mosaicFold(uv, breath);
 
   // Two octaves of field flow domain-warp the sampling point — the plant
   // image is dragged along the living field rather than covered by it.
@@ -123,6 +141,13 @@ void main() {
     col = vec3(rr, gg, bb);
   }
 
+  // Posterize (mode 9): quantise tones into bands — a graphic, screen-printed
+  // cut of the material (band count breathes a little).
+  if (uMode == 9) {
+    float lv = floor(mix(6.0, 4.0, breath) + 0.5);
+    col = floor(col * lv + 0.5) / lv;
+  }
+
   // Iridescent glaze (not a covering fill): take only the field's *hue*
   // deviation and let it catch the plant's own light — bright structure picks
   // up the colour, shadows stay the source. Colours the image for ANY palette
@@ -148,7 +173,10 @@ function compile(gl, type, src) {
   return sh;
 }
 
-const MODE_INDEX = { flow: 0, refract: 1, kaleido: 2, contour: 3, mirror: 4, slice: 5, tile: 6 };
+const MODE_INDEX = {
+  flow: 0, refract: 1, kaleido: 2, contour: 3, mirror: 4, slice: 5, tile: 6,
+  twist: 7, mosaic: 8, posterize: 9,
+};
 
 export function createGenerativeRenderer(opts = {}) {
   const canvas = document.createElement("canvas");
