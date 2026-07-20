@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EL-SYSTEMA · Master</title>
+<link rel="icon" href="data:," />
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#04080a;color:#cfe8d0;
+    font:11px/1.45 ui-monospace,Menlo,monospace;letter-spacing:.03em;overflow:hidden}
+  #bg{position:absolute;inset:0;z-index:0}
+  .wrap{position:relative;z-index:1;display:flex;flex-direction:column;height:100%}
+  .top{display:flex;align-items:center;gap:14px;padding:8px 12px;background:linear-gradient(#04080aee,#04080a88)}
+  .brand{color:#d0ff5a;letter-spacing:.24em;font-weight:700}
+  .oled{margin-left:auto;background:#071012;border:1px solid #1d3a34;border-radius:3px;
+    padding:5px 10px;color:#7fe8ff;min-width:260px;text-align:right}
+  .page-tabs{display:flex;gap:4px}
+  .page-tabs button{background:#0a1418;color:#6fa588;border:1px solid #1d3a34;padding:4px 9px;border-radius:3px;cursor:pointer;font:inherit}
+  .page-tabs button.on{border-color:#d0ff5a;color:#d0ff5a}
+  select,.mini{background:#0a1418;color:#9fe8c0;border:1px solid #1d3a34;padding:3px 6px;border-radius:3px;font:inherit}
+  button.arm{background:#0a1418;color:#9fe8c0;border:1px solid #1d3a34;padding:4px 10px;border-radius:3px;cursor:pointer;font:inherit}
+  button.arm.on{border-color:#d0ff5a;color:#d0ff5a}
+  .transport button{width:30px;height:26px;margin-left:2px}
+  .transport button.active{border-color:#d0ff5a;color:#d0ff5a}
+  .strips{display:flex;flex:1;gap:6px;padding:8px 12px 6px}
+  .strip{flex:1;display:flex;flex-direction:column;gap:5px;background:#070f12aa;border:1px solid #10241f;border-radius:5px;padding:7px 6px}
+  .strip .idx{color:#4f7f66;letter-spacing:.14em}
+  .strip select{width:100%;font-size:10px;padding:2px}
+  .enc{position:relative;height:30px;background:#0a1418;border:1px solid #16302b;border-radius:3px;overflow:hidden;cursor:ns-resize}
+  .enc .lab{position:absolute;left:4px;top:2px;color:#5f8f6a;font-size:9px;z-index:2}
+  .enc .val{position:absolute;right:4px;bottom:2px;color:#9fe8c0;font-size:10px;z-index:2}
+  .enc .bar{position:absolute;left:0;bottom:0;top:0;background:#123;border-right:2px solid #d0ff5a}
+  .fader{position:relative;flex:1;min-height:60px;background:#0a1418;border:1px solid #16302b;border-radius:3px;cursor:ns-resize;overflow:hidden}
+  .fader .fill{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(#0d3,#072)}
+  .fader .flab{position:absolute;left:4px;top:3px;color:#5f8f6a;font-size:9px;z-index:2}
+  .meter{position:absolute;right:2px;top:2px;bottom:2px;width:4px;background:#061;z-index:2}
+  .meter i{position:absolute;left:0;right:0;bottom:0;background:#d0ff5a}
+  .btns{display:flex;gap:4px}
+  .btns button{flex:1;background:#0a1418;color:#6fa588;border:1px solid #1d3a34;border-radius:3px;padding:4px 0;cursor:pointer;font:inherit;font-size:10px}
+  .btns button.on{border-color:#d0ff5a;color:#d0ff5a;background:#0c1c14}
+  .btns button.latch.on{border-color:#7fe8ff;color:#7fe8ff}
+  .foot{display:flex;gap:14px;align-items:center;padding:4px 12px 8px;color:#4f7f66}
+  .caps{display:flex;gap:4px;flex-wrap:wrap}
+  .caps button{background:#0a1418;color:#7fe8ff;border:1px solid #1d3a34;border-radius:3px;padding:2px 7px;cursor:pointer;font:inherit}
+  a{color:#7fe8ff}
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<div class="wrap">
+  <div class="top">
+    <span class="brand">EL·SYSTEMA MASTER</span>
+    <div class="page-tabs" id="pages">
+      <button data-p="0" class="on">GEOMETRY</button>
+      <button data-p="1">MODULATION</button>
+      <button data-p="2">SPACE</button>
+    </div>
+    <span class="transport" id="transport">
+      <button id="tPlay" class="mini active" title="play">▶</button>
+      <button id="tStop" class="mini" title="freeze time">■</button>
+      <button id="tCap" class="mini" title="capture">●</button>
+    </span>
+    <button class="arm" id="arm">▶ audio</button>
+    <select id="midi" class="mini"></select>
+    <span class="oled" id="oled">EL-SYSTEMA · 🎧 headphones · click to start audio</span>
+  </div>
+
+  <div class="strips" id="strips"></div>
+
+  <div class="foot">
+    <span id="pageLabel">PAGE: GEOMETRY — enc: fBase / shape1 / shape2</span>
+    <span>CAPTURES:</span><span class="caps" id="caps"></span>
+    <span style="margin-left:auto"><a href="./index.html">← instruments</a> · XL3 Custom Mode CC5–36 / Note40–62</span>
+  </div>
+</div>
+
+<script type="module">
+import { createEngine, ENGINE_TYPES } from './core/engines.js';
+import { ModMatrix, SOURCE_NAMES, OPERATORS, DEST_PARAMS } from './core/modmatrix.js';
+import { MidiHub, armAudio } from './core/midi.js';
+
+// ============================ audio graph ============================
+const ctx = new (window.AudioContext || window.webkitAudioContext)();
+const limiter = ctx.createDynamicsCompressor();
+limiter.threshold.value = -8; limiter.knee.value = 6; limiter.ratio.value = 12; limiter.attack.value = 0.003; limiter.release.value = 0.2;
+const masterGain = ctx.createGain(); masterGain.gain.value = 0.9;
+masterGain.connect(limiter).connect(ctx.destination);
+if (ctx.listener.positionX) { ctx.listener.positionX.value = 0; ctx.listener.positionZ.value = 0; ctx.listener.forwardZ.value = -1; ctx.listener.upY.value = 1; }
+
+// ============================ slots ============================
+const N = 8;
+const DEFAULT_TYPES = ['membrane','plate','lorenz','kuramoto','phyllotaxis','spatial','membrane','plate'];
+const slots = [];
+function newPanner(){ const p = ctx.createPanner(); p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 0.7; p.rolloffFactor = 1; return p; }
+function setPannerPos(p,x,y){ const X=x*2.2,Y=y*1.1,Z=-0.85; if(p.positionX){p.positionX.setTargetAtTime(X,ctx.currentTime,0.03);p.positionY.setTargetAtTime(Y,ctx.currentTime,0.03);p.positionZ.setTargetAtTime(Z,ctx.currentTime,0.03);} else p.setPosition(X,Y,Z); }
+function buildSlot(i,type){
+  const engine = createEngine(ctx,type);
+  const levelGain = ctx.createGain(); levelGain.gain.value = 0;
+  const panner = newPanner();
+  engine.output.connect(levelGain); levelGain.connect(panner); panner.connect(masterGain);
+  return { i, type, engine, levelGain, panner,
+    on:true, latched:false, level:0,
+    base:{ fBase:engine.fBase, shape1:0.4, shape2:0.5, spaceX:(i/(N-1))*2-1, spaceY:0, spaceSpread:0 },
+    env:0, x:0, y:0, orbAng:Math.random()*6.28,
+    exTimer:Math.random()*0.5, faderCaught:true };
+}
+for(let i=0;i<N;i++) slots.push(buildSlot(i,DEFAULT_TYPES[i]));
+
+function reloadEngine(i,type){
+  const s = slots[i];
+  try{ s.engine.output.disconnect(); }catch(e){}
+  s.type = type; s.engine = createEngine(ctx,type);
+  s.engine.output.connect(s.levelGain);
+  s.base.fBase = s.engine.fBase;
+}
+
+// ============================ mod matrix ============================
+const matrix = new ModMatrix(N, 200);
+// one primary route per slot (edited on PAGE2), plus room for user cross routes
+for(let i=0;i<N;i++) matrix.addRoute({ src:'off', op:'thru', cross:'none', depth:0, destSlot:i, destParam:'fBase' });
+const SRC = SOURCE_NAMES(N);
+
+// ============================ pages & global state ============================
+let page = 0;                 // 0 GEOMETRY, 1 MODULATION, 2 SPACE
+let globalRunning = true;     // transport play/freeze
+let lastTouched = 0;          // slot index for Track◀▶ operator edits
+const captures = [];
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const PAGE_LABELS = ['GEOMETRY — enc: fBase / shape1 / shape2','MODULATION — enc: source / depth / dest (op=Track◀▶)','SPACE — enc: X / Y / spread·rotate'];
+
+// ============================ control loop (200 Hz) ============================
+let last = performance.now();
+function control(){
+  const now = performance.now();
+  let dt = (now - last)/1000; last = now;
+  dt = clamp(dt, 0, 0.05);
+  const stepDt = globalRunning ? dt : 0;      // global freeze halts all time
+  const mods = matrix.compute(slots, stepDt, globalRunning);
+
+  for(const s of slots){
+    const b = s.base;
+    // effective params = manual base + summed modulation, scaled & clamped per dest
+    const mF = mods[s.i+':fBase']||0, m1 = mods[s.i+':shape1']||0, m2 = mods[s.i+':shape2']||0, mL = mods[s.i+':level']||0, mS = mods[s.i+':space']||0;
+    s.engine.setParam('fBase', clamp(b.fBase*(1+mF*1.2), 30, 3000));
+    s.engine.setParam('shape1', clamp(b.shape1+m1, 0, 1));
+    s.engine.setParam('shape2', clamp(b.shape2+m2, 0, 1));
+    // auto-excitation: geometry-timed strikes (no tempo) for decaying engines
+    if(globalRunning && s.on && !s.latched && s.level>0.02 && ['membrane','plate','spatial'].includes(s.type)){
+      s.exTimer -= dt;
+      if(s.exTimer<=0){ s.engine.trigger(0.4+s.level*0.9); s.exTimer = (0.25+Math.random()*0.5)/(0.4+s.level*2.6); }
+    }
+    const r = s.engine.processControl(stepDt);
+    s.env=r.env; s.x=r.x; s.y=r.y;
+    // level
+    const lv = s.on ? clamp(s.level*(1+mL), 0, 1.2) : 0;
+    s.levelGain.gain.setTargetAtTime(lv*0.9, ctx.currentTime, 0.02);
+    // space
+    let px,py;
+    if(b.spaceSpread>0.02){ s.orbAng += b.spaceSpread*stepDt*2.4; const rad=Math.hypot(b.spaceX,b.spaceY)||0.5; px=Math.cos(s.orbAng)*rad; py=Math.sin(s.orbAng)*rad; }
+    else { px = clamp(b.spaceX + r.x*0.45 + mS, -1,1); py = clamp(b.spaceY + r.y*0.45, -1,1); }
+    setPannerPos(s.panner, px, py); s.px=px; s.py=py;
+  }
+  updateMeters();
+}
+setInterval(control, 5);
+
+// ============================ XL3 mapping ============================
+const REL_MODE = 'twos';   // Novation "Relative 1" (2's complement). alt: 'offset','signed'
+function decodeRelative(v){
+  if(REL_MODE==='offset') return v-64;
+  if(REL_MODE==='signed') return v<64? v : -(v-64);
+  return v<64? v : v-128;                         // twos
+}
+const CC = {
+  FADER:[5,6,7,8,9,10,11,12],
+  ENC_TOP:[13,14,15,16,17,18,19,20],
+  ENC_MID:[21,22,23,24,25,26,27,28],
+  ENC_BOT:[29,30,31,32,33,34,35,36],
+};
+const NOTE = {
+  BTN_TOP:[40,41,42,43,44,45,46,47],
+  BTN_BOT:[48,49,50,51,52,53,54,55],
+  PAGE_UP:56, PAGE_DN:57, TRACK_L:58, TRACK_R:59,
+  PLAY:60, STOP:61, CAPTURE:62,
+};
+function oled(t){ document.getElementById('oled').textContent = t; }
+
+function encTop(i,d){ // top row
+  const s=slots[i]; lastTouched=i;
+  if(page===0){ s.base.fBase = clamp(s.base.fBase*Math.exp(d*0.02),30,3000); oled(`s${i} fBase ${s.base.fBase.toFixed(1)}Hz`); }
+  else if(page===1){ const rt=matrix.routes[i]; let si=SRC.indexOf(rt.src); if(si<0) si=0; si=((si+d)%SRC.length+SRC.length)%SRC.length; rt.src=SRC[si]; oled(`s${i} MOD src ${rt.src}`); }
+  else { s.base.spaceX = clamp(s.base.spaceX + d*0.02,-1,1); oled(`s${i} X ${s.base.spaceX.toFixed(2)}`); }
+  syncStrip(i);
+}
+function encMid(i,d){
+  const s=slots[i]; lastTouched=i;
+  if(page===0){ s.base.shape1 = clamp(s.base.shape1 + d*0.01,0,1); oled(`s${i} shape1 ${s.base.shape1.toFixed(2)}`); }
+  else if(page===1){ const rt=matrix.routes[i]; rt.depth = clamp(rt.depth + d*0.02,-1.5,1.5); oled(`s${i} MOD depth ${rt.depth.toFixed(2)}`); }
+  else { s.base.spaceY = clamp(s.base.spaceY + d*0.02,-1,1); oled(`s${i} Y ${s.base.spaceY.toFixed(2)}`); }
+  syncStrip(i);
+}
+function encBot(i,d){
+  const s=slots[i]; lastTouched=i;
+  if(page===0){ s.base.shape2 = clamp(s.base.shape2 + d*0.01,0,1); oled(`s${i} shape2 ${s.base.shape2.toFixed(2)}`); }
+  else if(page===1){ const rt=matrix.routes[i]; const di=(DEST_PARAMS.indexOf(rt.destParam)+d+DEST_PARAMS.length)%DEST_PARAMS.length; rt.destParam=DEST_PARAMS[di]; oled(`s${i} MOD dest ${rt.destParam}`); }
+  else { s.base.spaceSpread = clamp(s.base.spaceSpread + d*0.01,0,1); oled(`s${i} spread ${s.base.spaceSpread.toFixed(2)}`); }
+  syncStrip(i);
+}
+function faderMove(i,val){ // val 0..1 absolute, with pickup
+  const s=slots[i];
+  if(!s.faderCaught){ if(Math.abs(val - s.level) < 0.06) s.faderCaught=true; else return; }
+  s.level = val; oled(`s${i} level ${(val*100)|0}%`); syncStrip(i);
+}
+function btnTop(i){ const s=slots[i]; s.on=!s.on; oled(`s${i} ${s.on?'ON':'OFF'}`); syncStrip(i); }
+function btnBot(i){ const s=slots[i]; s.latched=!s.latched; s.engine.setLatch(s.latched); oled(`s${i} ${s.latched?'FREEZE':'live'}`); syncStrip(i); }
+function setPage(p){ page=p; document.querySelectorAll('#pages button').forEach(b=>b.classList.toggle('on',+b.dataset.p===p)); document.getElementById('pageLabel').textContent='PAGE: '+PAGE_LABELS[p]; for(let i=0;i<N;i++) syncStrip(i); oled('PAGE '+['GEOMETRY','MODULATION','SPACE'][p]); }
+function trackOp(dir){ // Track◀▶ = operator of last-touched route (PAGE2)
+  const rt=matrix.routes[lastTouched]; const oi=(OPERATORS.indexOf(rt.op)+dir+OPERATORS.length)%OPERATORS.length; rt.op=OPERATORS[oi]; oled(`s${lastTouched} MOD op ${rt.op}`); syncStrip(lastTouched);
+}
+function transport(kind){
+  if(kind==='play'){ globalRunning=true; if(ctx.state!=='running') ctx.resume(); }
+  else if(kind==='stop'){ globalRunning=false; }
+  else if(kind==='capture'){ doCapture(); }
+  document.getElementById('tPlay').classList.toggle('active',globalRunning);
+  document.getElementById('tStop').classList.toggle('active',!globalRunning);
+  oled('TRANSPORT '+kind.toUpperCase());
+}
+
+// ---- capture / recall ----
+function doCapture(){
+  const snap = { types:slots.map(s=>s.type), base:slots.map(s=>({...s.base})), level:slots.map(s=>s.level), on:slots.map(s=>s.on), latched:slots.map(s=>s.latched), routes:matrix.routes.map(r=>({src:r.src,op:r.op,cross:r.cross,depth:r.depth,destSlot:r.destSlot,destParam:r.destParam})) };
+  captures.push(snap); renderCaps(); oled('CAPTURE #'+captures.length);
+}
+function recall(k){
+  const snap=captures[k]; if(!snap) return;
+  for(let i=0;i<N;i++){ if(slots[i].type!==snap.types[i]) reloadEngine(i,snap.types[i]); slots[i].base={...snap.base[i]}; slots[i].level=snap.level[i]; slots[i].on=snap.on[i]; slots[i].latched=snap.latched[i]; slots[i].engine.setLatch(slots[i].latched); slots[i].faderCaught=false; syncStrip(i); }
+  snap.routes.forEach((r,idx)=>{ if(matrix.routes[idx]) Object.assign(matrix.routes[idx],r); });
+  oled('RECALL #'+(k+1)+' (move faders to catch)');
+}
+
+// ============================ MIDI wiring ============================
+const midi = new MidiHub();
+midi.on('cc',(num,val)=>{
+  let idx;
+  if((idx=CC.FADER.indexOf(num))>=0) faderMove(idx,val);
+  else if((idx=CC.ENC_TOP.indexOf(num))>=0) encTop(idx, decodeRelative(Math.round(val*127)));
+  else if((idx=CC.ENC_MID.indexOf(num))>=0) encMid(idx, decodeRelative(Math.round(val*127)));
+  else if((idx=CC.ENC_BOT.indexOf(num))>=0) encBot(idx, decodeRelative(Math.round(val*127)));
+});
+midi.on('note',(note,vel,on)=>{
+  if(!on) return; let idx;
+  if((idx=NOTE.BTN_TOP.indexOf(note))>=0) btnTop(idx);
+  else if((idx=NOTE.BTN_BOT.indexOf(note))>=0) btnBot(idx);
+  else if(note===NOTE.PAGE_UP) setPage((page+1)%3);
+  else if(note===NOTE.PAGE_DN) setPage((page+2)%3);
+  else if(note===NOTE.TRACK_L) trackOp(-1);
+  else if(note===NOTE.TRACK_R) trackOp(+1);
+  else if(note===NOTE.PLAY) transport('play');
+  else if(note===NOTE.STOP) transport('stop');
+  else if(note===NOTE.CAPTURE) transport('capture');
+});
+midi.init(document.getElementById('midi'));
+armAudio(ctx, document.getElementById('arm'));
+document.getElementById('arm').addEventListener('pointerdown',()=>document.getElementById('arm').classList.add('on'),{once:true});
+
+// ============================ UI (hardware mirror + mouse) ============================
+const stripsEl = document.getElementById('strips');
+const stripDom = [];
+for(let i=0;i<N;i++){
+  const el=document.createElement('div'); el.className='strip';
+  el.innerHTML=`<div class="idx">SLOT ${i+1}</div>
+    <select class="type"></select>
+    <div class="enc e0"><span class="lab"></span><span class="val"></span><div class="bar"></div></div>
+    <div class="enc e1"><span class="lab"></span><span class="val"></span><div class="bar"></div></div>
+    <div class="enc e2"><span class="lab"></span><span class="val"></span><div class="bar"></div></div>
+    <div class="fader"><span class="flab">LVL</span><div class="fill"></div><div class="meter"><i></i></div></div>
+    <div class="btns"><button class="on">ON</button><button class="latch">FRZ</button></div>`;
+  stripsEl.appendChild(el);
+  const sel=el.querySelector('.type'); ENGINE_TYPES.forEach(t=>{const o=document.createElement('option');o.value=o.textContent=t;sel.appendChild(o);});
+  sel.value=slots[i].type; sel.onchange=()=>{ reloadEngine(i,sel.value); syncStrip(i); };
+  // encoder drag (mouse plays them like the hardware)
+  const encs=[el.querySelector('.e0'),el.querySelector('.e1'),el.querySelector('.e2')];
+  const fns=[encTop,encMid,encBot];
+  encs.forEach((enc,r)=>{ let dy=0,drag=false;
+    enc.addEventListener('pointerdown',e=>{drag=true;dy=e.clientY;enc.setPointerCapture(e.pointerId);});
+    enc.addEventListener('pointermove',e=>{ if(!drag)return; const d=(dy-e.clientY); if(Math.abs(d)>=3){ fns[r](i, d>0?Math.ceil(d/3):Math.floor(d/3)); dy=e.clientY; } });
+    enc.addEventListener('pointerup',()=>drag=false);
+    enc.addEventListener('wheel',e=>{e.preventDefault();fns[r](i, e.deltaY<0?1:-1);},{passive:false});
+  });
+  const fader=el.querySelector('.fader');
+  const setF=e=>{ const rc=fader.getBoundingClientRect(); const v=clamp(1-(e.clientY-rc.top)/rc.height,0,1); slots[i].faderCaught=true; faderMove(i,v); };
+  let fdrag=false;
+  fader.addEventListener('pointerdown',e=>{fdrag=true;setF(e);fader.setPointerCapture(e.pointerId);});
+  fader.addEventListener('pointermove',e=>{if(fdrag)setF(e);});
+  fader.addEventListener('pointerup',()=>fdrag=false);
+  el.querySelector('.btns .on').onclick=()=>btnTop(i);
+  el.querySelector('.btns .latch').onclick=()=>btnBot(i);
+  stripDom.push(el);
+}
+document.querySelectorAll('#pages button').forEach(b=>b.onclick=()=>setPage(+b.dataset.p));
+document.getElementById('tPlay').onclick=()=>transport('play');
+document.getElementById('tStop').onclick=()=>transport('stop');
+document.getElementById('tCap').onclick=()=>transport('capture');
+
+const ENC_LABELS=[['fBase','shape1','shape2'],['src','depth','dest'],['X','Y','sprd']];
+function encDisplay(i,row){
+  const s=slots[i];
+  if(page===0){ const b=s.base; const v=[b.fBase.toFixed(0),b.shape1.toFixed(2),b.shape2.toFixed(2)][row]; const frac=[clamp((Math.log(b.fBase/30)/Math.log(100)),0,1),b.shape1,b.shape2][row]; return {v,frac}; }
+  if(page===1){ const rt=matrix.routes[i]; if(row===0) return {v:rt.src,frac:SRC.indexOf(rt.src)/SRC.length}; if(row===1) return {v:rt.depth.toFixed(2),frac:(rt.depth+1.5)/3}; return {v:rt.destParam+'·'+rt.op.slice(0,3),frac:DEST_PARAMS.indexOf(rt.destParam)/DEST_PARAMS.length}; }
+  const b=s.base; if(row===0) return {v:b.spaceX.toFixed(2),frac:(b.spaceX+1)/2}; if(row===1) return {v:b.spaceY.toFixed(2),frac:(b.spaceY+1)/2}; return {v:b.spaceSpread.toFixed(2),frac:b.spaceSpread};
+}
+function syncStrip(i){
+  const el=stripDom[i], s=slots[i];
+  el.querySelector('.type').value=s.type;
+  for(let r=0;r<3;r++){ const enc=el.querySelector('.e'+r); const d=encDisplay(i,r);
+    enc.querySelector('.lab').textContent=ENC_LABELS[page][r];
+    enc.querySelector('.val').textContent=d.v;
+    enc.querySelector('.bar').style.width=(clamp(d.frac,0,1)*100)+'%';
+  }
+  el.querySelector('.fill').style.height=(s.level*100)+'%';
+  const onb=el.querySelector('.btns .on'); onb.classList.toggle('on',s.on); onb.textContent=s.on?'ON':'off';
+  const lb=el.querySelector('.btns .latch'); lb.classList.toggle('on',s.latched);
+}
+function updateMeters(){ for(let i=0;i<N;i++){ stripDom[i].querySelector('.meter i').style.height=(clamp(slots[i].env,0,1)*100)+'%'; } }
+function renderCaps(){ const c=document.getElementById('caps'); c.innerHTML=''; captures.forEach((_,k)=>{const b=document.createElement('button');b.textContent='#'+(k+1);b.onclick=()=>recall(k);c.appendChild(b);}); }
+for(let i=0;i<N;i++) syncStrip(i);
+setPage(0);
+
+// ============================ background visualization ============================
+const bg=document.getElementById('bg'); const g=bg.getContext('2d');
+function rs(){ bg.width=innerWidth*devicePixelRatio; bg.height=innerHeight*devicePixelRatio; } addEventListener('resize',rs); rs();
+function draw(){
+  const W=bg.width,H=bg.height; g.fillStyle='rgba(4,8,10,0.22)'; g.fillRect(0,0,W,H);
+  const cx=W/2, cy=H*0.52, R=Math.min(W,H)*0.34;
+  // listener
+  g.strokeStyle='#12312a'; g.lineWidth=1; g.beginPath(); g.arc(cx,cy,R,0,7); g.stroke();
+  g.strokeStyle='#1d3a34'; g.beginPath(); g.arc(cx,cy,8,0,7); g.stroke();
+  for(let i=0;i<N;i++){ const s=slots[i]; if(!s.on) continue;
+    const px=cx+(s.px||0)*R, py=cy+(s.py||0)*R; const e=clamp(s.env,0,1);
+    const hue=[150,60,20,180,110,200,140,40][i];
+    g.fillStyle=`hsla(${hue},80%,60%,${0.15+e*0.6})`;
+    g.beginPath(); g.arc(px,py, 4+e*22*(s.level*0.6+0.4), 0,7); g.fill();
+    g.fillStyle=`hsla(${hue},90%,70%,${0.5})`; g.beginPath(); g.arc(px,py,3,0,7); g.fill();
+  }
+  requestAnimationFrame(draw);
+}
+draw();
+
+// expose for headless tests
+window.__master = { slots, matrix, setPage, encTop, encMid, encBot, faderMove, btnTop, btnBot, transport, trackOp, decodeRelative, get running(){return globalRunning;} };
+</script>
+</body>
+</html>
