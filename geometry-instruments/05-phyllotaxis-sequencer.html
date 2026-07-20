@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phyllotaxis Sequencer · EL-SYSTEMA</title>
+<link rel="stylesheet" href="./core/style.css" />
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud">
+  <span class="title">PHYLLOTAXIS SEQUENCER <small>golden angle 137.5° · geometry is the clock · A7</small></span>
+  <button id="arm">▶ audio</button>
+  <label>midi <select id="midi"></select></label>
+  <label>seeds <input id="N" type="range" min="40" max="500" step="1" value="220"></label>
+  <label>scan <input id="spd" type="range" min="0.002" max="0.08" step="0.001" value="0.02"></label>
+  <label>winding b <input id="b" type="range" min="0.15" max="0.55" step="0.005" value="0.3063"></label>
+</div>
+<div class="readout" id="read"></div>
+<div class="note">no tempo — the log-spiral playhead fires a seed when it passes near. CC1→scan CC2→seeds · pitchbend spins the disc</div>
+
+<script type="module">
+import { MidiHub, armAudio } from './core/midi.js';
+import { tune, PHI } from './core/tuning.js';
+
+const ctx = new (window.AudioContext || window.webkitAudioContext)();
+const master = ctx.createGain(); master.gain.value = 0.6; master.connect(ctx.destination);
+const GOLD = 137.507 * Math.PI/180;
+
+let Nseeds = 220, scanSpd = 0.02, bWind = Math.log(PHI)/(Math.PI/2), spin = 0;
+let seeds = [];
+function buildSeeds(){
+  seeds = [];
+  const c = 1/Math.sqrt(Nseeds); // normalise so outer seeds ~radius 1
+  for(let k=1;k<=Nseeds;k++){
+    const r = c*Math.sqrt(k), th = k*GOLD;
+    // pitch from radius: golden-ratio spacing, non-equal-temperament (A2/A7)
+    const freq = 90 * Math.pow(PHI, r*3.2);
+    seeds.push({ r, th, freq, pan: Math.cos(th), lit: 0, cool: 0 });
+  }
+}
+buildSeeds();
+
+function playSeed(sd, vel){
+  if(ctx.state!=='running') return;
+  const o=ctx.createOscillator(); o.type='triangle'; o.frequency.value=sd.freq;
+  const o2=ctx.createOscillator(); o2.type='sine'; o2.frequency.value=sd.freq*2.01;
+  const g=ctx.createGain(); const p=ctx.createStereoPanner(); p.pan.value=Math.max(-1,Math.min(1,sd.pan));
+  const g2=ctx.createGain(); g2.gain.value=0.25;
+  o.connect(g); o2.connect(g2).connect(g); g.connect(p).connect(master);
+  const t=ctx.currentTime, tau=0.5+ (1/ (sd.freq)) *120;
+  g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.28*vel,t+0.004);
+  g.gain.exponentialRampToValueAtTime(0.0008, t+tau);
+  o.start(t); o2.start(t); o.stop(t+tau+0.05); o2.stop(t+tau+0.05);
+  sd.lit=1;
+}
+
+const bind=(id,fn)=>{const el=document.getElementById(id); el.oninput=()=>fn(+el.value);};
+bind('N',v=>{Nseeds=Math.round(v); buildSeeds();});
+bind('spd',v=>scanSpd=v); bind('b',v=>bWind=v);
+const midi=new MidiHub();
+let regShift=1;
+midi.on('note',(n,vel,on)=>{ if(on) regShift = tune(n,{mode:'phi',base:1,refNote:60}); });
+midi.on('cc',(num,val)=>{ if(num===1){scanSpd=0.002+val*0.078; document.getElementById('spd').value=scanSpd;} else if(num===2){Nseeds=Math.round(40+val*460); buildSeeds(); document.getElementById('N').value=Nseeds;} });
+midi.on('pitch',(v)=>{ spin += v*0.04; });
+midi.init(document.getElementById('midi'));
+armAudio(ctx, document.getElementById('arm'));
+
+const canvas=document.getElementById('c'); const g=canvas.getContext('2d');
+function resize(){ canvas.width=innerWidth*devicePixelRatio; canvas.height=innerHeight*devicePixelRatio; }
+addEventListener('resize',resize); resize();
+
+let headTh = 0;
+function frame(){
+  // advance log-spiral playhead; reset when it runs off the disc
+  headTh += scanSpd*6;
+  let headR = 0.03*Math.exp(bWind*headTh);
+  if(headR>1.05){ headTh=0; headR=0.03; }
+  const hx=headR*Math.cos(headTh+spin), hy=headR*Math.sin(headTh+spin);
+
+  // fire seeds the head passes near
+  const thr=0.045;
+  for(const sd of seeds){
+    if(sd.cool>0) sd.cool--;
+    const sx=sd.r*Math.cos(sd.th+spin), sy=sd.r*Math.sin(sd.th+spin);
+    const dist=Math.hypot(sx-hx, sy-hy);
+    if(dist<thr && sd.cool===0){ sd.cool=30; playSeed({...sd, freq: sd.freq*regShift}, 0.9); sd.lit=1; }
+    sd.lit*=0.90;
+  }
+
+  const W=canvas.width,H=canvas.height; g.fillStyle='rgba(4,8,10,0.35)'; g.fillRect(0,0,W,H);
+  const cx=W/2, cy=H*0.55, rad=Math.min(W,H)*0.42;
+  // draw spiral
+  g.strokeStyle='rgba(29,58,52,0.8)'; g.lineWidth=1; g.beginPath();
+  for(let a=0;a<40;a+=0.05){ let rr=0.03*Math.exp(bWind*a); if(rr>1.05)break; const X=cx+rr*Math.cos(a+spin)*rad, Y=cy+rr*Math.sin(a+spin)*rad; if(a===0)g.moveTo(X,Y);else g.lineTo(X,Y);} g.stroke();
+  // seeds
+  for(const sd of seeds){ const X=cx+sd.r*Math.cos(sd.th+spin)*rad, Y=cy+sd.r*Math.sin(sd.th+spin)*rad;
+    const b=sd.lit; g.fillStyle= b>0.05 ? `rgba(208,255,90,${0.3+b*0.7})` : 'rgba(90,150,110,0.5)';
+    g.beginPath(); g.arc(X,Y, b>0.05?3+b*4:1.7, 0,7); g.fill(); }
+  // playhead
+  g.fillStyle='#7fe8ff'; g.beginPath(); g.arc(cx+hx*rad, cy+hy*rad, 5,0,7); g.fill();
+  document.getElementById('read').textContent=`seeds ${Nseeds}  scan ${scanSpd.toFixed(3)}  b ${bWind.toFixed(3)}  reg ×${regShift.toFixed(3)}`;
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>

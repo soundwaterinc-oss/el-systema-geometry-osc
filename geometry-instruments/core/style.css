@@ -1,0 +1,32 @@
+/* Shared minimal dark theme for all EL-SYSTEMA geometry instruments. */
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%;
+  background: #04080a; color: #cfe8d0;
+  font: 12px/1.5 ui-monospace, Menlo, monospace;
+  letter-spacing: 0.04em; overflow: hidden;
+}
+canvas { display: block; position: absolute; inset: 0; width: 100%; height: 100%; }
+.hud {
+  position: absolute; z-index: 5; top: 0; left: 0; right: 0;
+  display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+  padding: 10px 14px;
+  background: linear-gradient(#04080aee, #04080a00);
+  pointer-events: none;
+}
+.hud > * { pointer-events: auto; }
+.title { color: #d0ff5a; letter-spacing: 0.22em; font-weight: 700; }
+.title small { color: #5f8f6a; letter-spacing: 0.14em; font-weight: 400; margin-left: .6em; }
+label { color: #7fae90; display: inline-flex; align-items: center; gap: 6px; }
+select, button {
+  background: #0a1418; color: #9fe8c0; border: 1px solid #1d3a34;
+  padding: 5px 9px; border-radius: 3px; font: inherit; cursor: pointer;
+}
+button.armed { border-color: #d0ff5a; color: #d0ff5a; }
+input[type=range] { width: 120px; accent-color: #d0ff5a; }
+.readout {
+  position: absolute; z-index: 5; bottom: 8px; left: 14px;
+  color: #4f7f66; font-size: 11px; white-space: pre; pointer-events: none;
+}
+.note { position: absolute; z-index: 5; bottom: 8px; right: 14px; color: #4f7f66; font-size: 11px; }
+a { color: #7fe8ff; }

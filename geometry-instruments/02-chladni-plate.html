@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chladni Plate · EL-SYSTEMA</title>
+<link rel="stylesheet" href="./core/style.css" />
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud">
+  <span class="title">CHLADNI PLATE <small>plate f∝λ² · edge morph · A1/A8</small></span>
+  <button id="arm">▶ audio</button>
+  <label>midi <select id="midi"></select></label>
+  <label>tuning <select id="tune"></select></label>
+  <label>edge <input id="morph" type="range" min="0" max="1" step="0.001" value="0"></label>
+  <span id="edgelbl">clamped</span>
+</div>
+<div class="readout" id="read"></div>
+<div class="note">strike to sing the plate · fader/CC16 morphs clamped↔ss↔free · nodal lines = yellow sand</div>
+
+<script type="module">
+import { plateMorphRatios, renderModalBuffer, playBuffer } from './core/modal.js';
+import { besselJArray } from './core/bessel.js';
+import { tune, TUNING_MODES } from './core/tuning.js';
+import { MidiHub, armAudio } from './core/midi.js';
+
+const ctx = new (window.AudioContext || window.webkitAudioContext)();
+const master = ctx.createGain(); master.gain.value = 0.6; master.connect(ctx.destination);
+
+let fBase = 140, bright = 0.6, tauRef = 3.2, tuneMode = 'prime', morph = 0;
+const M = 5, NN = 4;
+let modes = plateMorphRatios(morph, M, NN);
+
+const tuneSel = document.getElementById('tune');
+for (const m of TUNING_MODES) { const o=document.createElement('option'); o.value=o.textContent=m; tuneSel.appendChild(o); }
+tuneSel.value = tuneMode; tuneSel.onchange = () => (tuneMode = tuneSel.value);
+
+const edgelbl = document.getElementById('edgelbl');
+function setMorph(v) {
+  morph = v; modes = plateMorphRatios(morph, M, NN);
+  edgelbl.textContent = v < 0.33 ? 'clamped' : v < 0.66 ? 'simply-supported' : 'free';
+  buildGrids();
+}
+document.getElementById('morph').oninput = (e) => setMorph(+e.target.value);
+
+// Mode spatial shape (plate approximated by J_m(λr)cos(mθ)) for excitation + nodal viz.
+function excite(r, theta) {
+  return modes.map((md) => {
+    const lam = Math.sqrt(md.ratio) * 2.3; // pseudo-λ from ratio for shape scale
+    const jr = besselJArray(lam * r, md.m)[md.m];
+    return jr * Math.cos(md.m * theta);
+  });
+}
+
+const strikes = [];
+let lastStrike = null;
+function strike(r, theta, vel) {
+  if (ctx.state !== 'running') return;
+  const amps = excite(r, theta);
+  const buf = renderModalBuffer(ctx, modes, amps, {
+    fBase, tauRef, tauExp: 0.75, bright, gain: 0.85,
+  });
+  playBuffer(ctx, buf, master, vel);
+  strikes.push({ r, theta, t0: ctx.currentTime, vel });
+  if (strikes.length > 4) strikes.shift();
+  lastStrike = { r, theta, t0: ctx.currentTime };
+}
+
+const canvas = document.getElementById('c');
+function toDisk(cx0, cy0) {
+  const rect = canvas.getBoundingClientRect();
+  const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+  const rad = Math.min(rect.width, rect.height)*0.46;
+  const x=(cx0-cx)/rad, y=(cy0-cy)/rad; return { r: Math.min(1,Math.hypot(x,y)), theta: Math.atan2(y,x) };
+}
+canvas.addEventListener('pointerdown', (e) => { const d=toDisk(e.clientX,e.clientY); strike(d.r,d.theta,0.85); });
+
+const ctrl = {};
+const midi = new MidiHub();
+midi.on('note', (note, vel, on) => { if(!on) return; fBase = tune(note,{mode:tuneMode,base:140,refNote:60}); bright=0.35+vel*0.6; strike(0.5,0,vel); });
+midi.on('cc', (num,val) => { if(num===16){ setMorph(val); document.getElementById('morph').value=val; } else if(num===1) tauRef=1+val*6; });
+midi.on('aftertouch', (val)=>{ tauRef=1+val*6; });
+midi.init(document.getElementById('midi'));
+armAudio(ctx, document.getElementById('arm'));
+
+// ---- nodal-line field render ----
+const GN = 140;
+const g = canvas.getContext('2d');
+const off = document.createElement('canvas'); off.width=off.height=GN; const offctx=off.getContext('2d');
+const img = offctx.createImageData(GN,GN);
+const field = new Float32Array(GN*GN);
+const inDisk = new Uint8Array(GN*GN);
+const pr = new Float32Array(GN*GN), pth = new Float32Array(GN*GN);
+for (let gy=0; gy<GN; gy++) for (let gx=0; gx<GN; gx++){ const p=gy*GN+gx; const x=(gx/(GN-1))*2-1,y=(gy/(GN-1))*2-1; const r=Math.hypot(x,y); pr[p]=r;pth[p]=Math.atan2(y,x); inDisk[p]= r<=1?1:0; }
+// Precomputed spatial shape per mode; rebuilt only when the edge morph changes.
+let modeGrid = [];
+function buildGrids(){
+  modeGrid = modes.map((md)=>{
+    const lam = Math.sqrt(md.ratio)*2.3;
+    const arr = new Float32Array(GN*GN);
+    for(let p=0;p<arr.length;p++){ if(!inDisk[p]) continue; arr[p]=besselJArray(lam*pr[p], md.m)[md.m]*Math.cos(md.m*pth[p]); }
+    return arr;
+  });
+}
+buildGrids();
+
+function resize(){ canvas.width=innerWidth*devicePixelRatio; canvas.height=innerHeight*devicePixelRatio; }
+addEventListener('resize', resize); resize();
+
+function frame(){
+  // Standing field = Σ modes shape, weighted by last strike excitation & envelope.
+  field.fill(0);
+  const now = ctx.currentTime;
+  const st = lastStrike;
+  const amps = st ? excite(st.r, st.theta) : modes.map(()=>1);
+  const env = st ? Math.exp(-(now-st.t0)/Math.max(0.5,tauRef)) : 1;
+  for (let i=0;i<modes.length;i++){
+    const a = amps[i]*env;
+    if (Math.abs(a)<0.01) continue;
+    const grid = modeGrid[i];
+    for (let p=0;p<field.length;p++) field[p]+= a*grid[p];
+  }
+  const d=img.data;
+  for(let p=0;p<field.length;p++){ const q=p*4;
+    if(!inDisk[p]){ d[q]=4;d[q+1]=8;d[q+2]=10;d[q+3]=255; continue; }
+    const v=Math.abs(field[p]);
+    const nodal = Math.exp(-v*v*90);        // bright where field≈0 (sand collects)
+    d[q]=Math.min(255, 20+nodal*235);
+    d[q+1]=Math.min(255, 26+nodal*230);
+    d[q+2]=Math.min(255, 24+nodal*40);
+    d[q+3]=255;
+  }
+  offctx.putImageData(img,0,0);
+  const W=canvas.width,H=canvas.height, rad=Math.min(W,H)*0.46, cx=W/2, cy=H/2;
+  g.clearRect(0,0,W,H);
+  g.save(); g.beginPath(); g.arc(cx,cy,rad,0,7); g.clip();
+  g.imageSmoothingEnabled=true; g.drawImage(off, cx-rad, cy-rad, rad*2, rad*2); g.restore();
+  g.strokeStyle='#1d3a34'; g.lineWidth=2; g.beginPath(); g.arc(cx,cy,rad,0,7); g.stroke();
+  document.getElementById('read').textContent = `fBase ${fBase.toFixed(1)}Hz  tune ${tuneMode}  edge ${morph.toFixed(2)} (${edgelbl.textContent})  τ ${tauRef.toFixed(2)}s`;
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>

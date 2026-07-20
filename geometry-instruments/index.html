@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EL-SYSTEMA · Geometry Instruments</title>
+<link rel="icon" href="data:," />
+<style>
+  * { box-sizing: border-box; }
+  html,body { margin:0; min-height:100%; background:#04080a; color:#cfe8d0;
+    font:13px/1.6 ui-monospace, Menlo, monospace; letter-spacing:.04em; }
+  header { padding:34px 26px 10px; }
+  h1 { color:#d0ff5a; letter-spacing:.26em; font-size:20px; margin:0 0 6px; }
+  .sub { color:#5f8f6a; max-width:60ch; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+    gap:14px; padding:20px 26px 40px; }
+  a.card { display:block; text-decoration:none; color:inherit; background:#0a1418;
+    border:1px solid #16302b; border-radius:6px; padding:16px 16px 18px; transition:.15s; }
+  a.card:hover { border-color:#d0ff5a; transform:translateY(-2px); background:#0c191d; }
+  .n { color:#4f7f66; font-size:11px; letter-spacing:.2em; }
+  .t { color:#9fe8c0; font-size:15px; margin:4px 0 6px; letter-spacing:.08em; }
+  .d { color:#6fa588; font-size:12px; }
+  .ref { color:#3f6a52; font-size:11px; margin-top:8px; }
+  footer { color:#3f6a52; padding:0 26px 30px; max-width:70ch; }
+  code { color:#7fe8ff; }
+</style>
+</head>
+<body>
+<header>
+  <h1>EL·SYSTEMA — GEOMETRY INSTRUMENTS</h1>
+  <p class="sub">既存の音楽的法則（平均律・和声・BPM）を排し、自然界・物理界の幾何と関数だけを音の素材にする。
+  No equal temperament, no harmony, no tempo — shapes, eigenmodes and dynamical systems make the sound.</p>
+</header>
+<div class="grid">
+  <a class="card" href="./01-bessel-membrane.html">
+    <div class="n">01</div><div class="t">Bessel Membrane</div>
+    <div class="d">円形膜の固有モードを加算合成。叩く場所＝音色。</div><div class="ref">A1 circular membrane · A8 decay</div></a>
+  <a class="card" href="./02-chladni-plate.html">
+    <div class="n">02</div><div class="t">Chladni Plate</div>
+    <div class="d">板 f∝λ²。縁条件 clamped↔ss↔free を連続モーフ。節線=砂。</div><div class="ref">A1 plate · A8 n²</div></a>
+  <a class="card" href="./03-lorenz-voice.html">
+    <div class="n">03</div><div class="t">Lorenz Voice</div>
+    <div class="d">Lorenzアトラクタの軌道が紡ぐ生成シンセ。テンポなし。</div><div class="ref">A3 Lorenz · A6 1/f</div></a>
+  <a class="card" href="./04-kuramoto-choir.html">
+    <div class="n">04</div><div class="t">Kuramoto Choir</div>
+    <div class="d">位相振動子が結合Kで揃う／ほどける合唱。</div><div class="ref">A4 Kuramoto · A2 primes</div></a>
+  <a class="card" href="./05-phyllotaxis-sequencer.html">
+    <div class="n">05</div><div class="t">Phyllotaxis Sequencer</div>
+    <div class="d">黄金角137.5°の種子を対数螺旋が走査。幾何が時間を作る。</div><div class="ref">A7 phyllotaxis · A2 φ</div></a>
+  <a class="card" href="./06-spatial-field.html">
+    <div class="n">06</div><div class="t">Spatial Field 🎧</div>
+    <div class="d">モード形状を空間場に。音源を動かすとHRTFで定位が動く。</div><div class="ref">A1 modeshape · A5 standing waves</div></a>
+</div>
+<footer>
+  共通コア: <code>core/tuning.js</code>（非平均律チューナ: φ / 銀比 / 素数比 / 調和列）,
+  <code>core/bessel.js</code>（ベッセル関数と零点）, <code>core/modal.js</code>（モード加算＋物理減衰）,
+  <code>core/midi.js</code>（Web MIDI）. すべて外部ライブラリなし・単体で動作。Web Audio + Web MIDI + Canvas.
+</footer>
+</body>
+</html>

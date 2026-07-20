@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bessel Membrane · EL-SYSTEMA</title>
+<link rel="stylesheet" href="./core/style.css" />
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud">
+  <span class="title">BESSEL MEMBRANE <small>circular membrane · A1</small></span>
+  <button id="arm">▶ audio</button>
+  <label>midi <select id="midi"></select></label>
+  <label>tuning <select id="tune"></select></label>
+  <label>size <input id="size" type="range" min="60" max="440" value="180"></label>
+</div>
+<div class="readout" id="read"></div>
+<div class="note">drag / tap the membrane to strike · CC74=x CC71=y · vel=brightness · AT=decay</div>
+
+<script type="module">
+import { membraneModes, membraneExcitation, renderModalBuffer, playBuffer } from './core/modal.js';
+import { besselJArray } from './core/bessel.js';
+import { tune, TUNING_MODES } from './core/tuning.js';
+import { MidiHub, armAudio } from './core/midi.js';
+
+const ctx = new (window.AudioContext || window.webkitAudioContext)();
+const master = ctx.createGain(); master.gain.value = 0.7; master.connect(ctx.destination);
+const reverbish = ctx.createGain(); reverbish.connect(master); // (simple bus)
+
+const modes = membraneModes(5, 5);
+let fBase = 180;        // struck size (Hz), driven by note + size slider
+let bright = 0.55;      // velocity → brightness
+let tauRef = 2.4;       // decay, driven by aftertouch
+let tuneMode = 'phi';
+
+// ---- tuning selector ----
+const tuneSel = document.getElementById('tune');
+for (const m of TUNING_MODES) { const o=document.createElement('option'); o.value=o.textContent=m; tuneSel.appendChild(o); }
+tuneSel.value = tuneMode;
+tuneSel.onchange = () => (tuneMode = tuneSel.value);
+
+document.getElementById('size').oninput = (e) => { fBase = +e.target.value; };
+
+// ---- precompute per-mode shape grids for visuals ----
+const GN = 96;               // grid resolution across the disk
+const modeGrid = modes.map(() => new Float32Array(GN * GN));
+const inDisk = new Uint8Array(GN * GN);
+(function buildGrids() {
+  for (let gy = 0; gy < GN; gy++) {
+    for (let gx = 0; gx < GN; gx++) {
+      const x = (gx / (GN - 1)) * 2 - 1;
+      const y = (gy / (GN - 1)) * 2 - 1;
+      const r = Math.hypot(x, y);
+      const p = gy * GN + gx;
+      if (r > 1) { inDisk[p] = 0; continue; }
+      inDisk[p] = 1;
+      const theta = Math.atan2(y, x);
+      for (let i = 0; i < modes.length; i++) {
+        const md = modes[i];
+        const jr = besselJArray(md.alpha * r, md.m)[md.m];
+        modeGrid[i][p] = jr * Math.cos(md.m * theta);
+      }
+    }
+  }
+})();
+
+// ---- active strikes drive both audio (rendered buffer) and the field ----
+// The visual runs on its own performance.now() clock so the membrane still
+// breathes even if the AudioContext is momentarily suspended.
+const strikes = []; // {amps, ratios, taus, t0}
+function strike(r, theta, vel) {
+  const amps = membraneExcitation(modes, r, theta);
+  if (ctx.state === 'running') {
+    const buf = renderModalBuffer(ctx, modes, amps, {
+      fBase, tauRef, tauExp: 0.6, bright: bright * 0.5 + vel * 0.5, gain: 0.9,
+    });
+    playBuffer(ctx, buf, reverbish, vel);
+  }
+  // Visual echo: envelope + inharmonic ratios (animated at a slowed, legible rate).
+  const freqs = modes.map((m) => fBase * m.ratio);
+  const fMin = Math.min(...freqs);
+  const taus = freqs.map((f) => tauRef * Math.pow(fMin / f, 0.6));
+  strikes.push({ amps, ratios: modes.map((m) => m.ratio), taus, t0: performance.now() / 1000 });
+  if (strikes.length > 24) strikes.shift();
+  lastStrike = { r, theta };
+}
+let lastStrike = null;
+
+// ---- input: XY pad on the canvas ----
+const canvas = document.getElementById('c');
+function canvasToDisk(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+  const rad = Math.min(rect.width, rect.height) * 0.46;
+  const x = (clientX - cx) / rad, y = (clientY - cy) / rad;
+  const r = Math.min(1, Math.hypot(x, y));
+  return { r, theta: Math.atan2(y, x) };
+}
+let dragging = false;
+canvas.addEventListener('pointerdown', (e) => { dragging = true; const d = canvasToDisk(e.clientX, e.clientY); strike(d.r, d.theta, 0.8); });
+canvas.addEventListener('pointermove', (e) => { if (!dragging) return; const d = canvasToDisk(e.clientX, e.clientY); ctrl.x = (d.r*Math.cos(d.theta)+1)/2; ctrl.y=(d.r*Math.sin(d.theta)+1)/2; });
+window.addEventListener('pointerup', () => (dragging = false));
+
+// ---- MIDI ----
+const ctrl = { x: 0.5, y: 0.5 };
+const midi = new MidiHub();
+midi.on('note', (note, vel, on) => {
+  if (!on) return;
+  fBase = tune(note, { mode: tuneMode, base: 180, refNote: 60 });
+  bright = 0.35 + vel * 0.6;
+  const r = ctrl.x * 2 - 1, yy = ctrl.y * 2 - 1;
+  strike(Math.min(1, Math.hypot(r, yy)), Math.atan2(yy, r), vel);
+});
+midi.on('cc', (num, val) => {
+  if (num === 74) ctrl.x = val;
+  else if (num === 71) ctrl.y = val;
+  else if (num === 1) tauRef = 0.6 + val * 5.5;
+});
+midi.on('aftertouch', (val) => { tauRef = 0.6 + val * 5.5; });
+midi.init(document.getElementById('midi'));
+
+armAudio(ctx, document.getElementById('arm'));
+
+// ---- render loop ----
+const g = canvas.getContext('2d');
+let off = document.createElement('canvas'); off.width = off.height = GN;
+let offctx = off.getContext('2d');
+let img = offctx.createImageData(GN, GN);
+function resize() { canvas.width = innerWidth * devicePixelRatio; canvas.height = innerHeight * devicePixelRatio; }
+addEventListener('resize', resize); resize();
+
+const field = new Float32Array(GN * GN);
+function frame() {
+  const now = performance.now() / 1000;
+  field.fill(0);
+  for (let s = strikes.length - 1; s >= 0; s--) {
+    const st = strikes[s];
+    const age = now - st.t0;
+    let alive = false;
+    for (let i = 0; i < modes.length; i++) {
+      const env = Math.exp(-age / st.taus[i]);
+      if (env < 0.02) continue;
+      alive = true;
+      // Slowed, inharmonic visual beat (ratio-scaled) so the modes are visible,
+      // not the true audio-rate oscillation which would strobe at 60fps.
+      const a = st.amps[i] * env * Math.cos(2 * Math.PI * st.ratios[i] * age * 0.6);
+      const grid = modeGrid[i];
+      for (let p = 0; p < field.length; p++) field[p] += a * grid[p];
+    }
+    if (!alive) strikes.splice(s, 1);
+  }
+  // colour map: displacement → teal/gold heat
+  const d = img.data;
+  for (let p = 0; p < field.length; p++) {
+    const q = p * 4;
+    if (!inDisk[p]) { d[q]=4; d[q+1]=8; d[q+2]=10; d[q+3]=255; continue; }
+    const v = field[p];
+    const pos = Math.max(0, v), neg = Math.max(0, -v);
+    d[q]   = Math.min(255, 20 + pos * 520 + neg * 40);
+    d[q+1] = Math.min(255, 30 + pos * 300 + neg * 240);
+    d[q+2] = Math.min(255, 26 + neg * 360 + pos * 40);
+    d[q+3] = 255;
+  }
+  offctx.putImageData(img, 0, 0);
+  g.clearRect(0, 0, canvas.width, canvas.height);
+  const W = canvas.width, H = canvas.height;
+  const rad = Math.min(W, H) * 0.46, cx = W / 2, cy = H / 2;
+  g.imageSmoothingEnabled = true;
+  g.save();
+  g.beginPath(); g.arc(cx, cy, rad, 0, 7); g.clip();
+  g.drawImage(off, cx - rad, cy - rad, rad * 2, rad * 2);
+  g.restore();
+  g.strokeStyle = '#1d3a34'; g.lineWidth = 2; g.beginPath(); g.arc(cx, cy, rad, 0, 7); g.stroke();
+  // strike marker
+  if (lastStrike) {
+    const mx = cx + Math.cos(lastStrike.theta) * lastStrike.r * rad;
+    const my = cy + Math.sin(lastStrike.theta) * lastStrike.r * rad;
+    g.strokeStyle = '#d0ff5a'; g.beginPath(); g.arc(mx, my, 7, 0, 7); g.stroke();
+  }
+  document.getElementById('read').textContent =
+    `fBase ${fBase.toFixed(1)} Hz   tune ${tuneMode}   τ ${tauRef.toFixed(2)}s   bright ${bright.toFixed(2)}   voices ${strikes.length}`;
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>

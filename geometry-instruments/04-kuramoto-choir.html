@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kuramoto Choir · EL-SYSTEMA</title>
+<link rel="stylesheet" href="./core/style.css" />
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud">
+  <span class="title">KURAMOTO CHOIR <small>phase sync · a crowd that gathers · A4</small></span>
+  <button id="arm">▶ audio</button>
+  <label>midi <select id="midi"></select></label>
+  <label>coupling K <input id="K" type="range" min="0" max="6" step="0.01" value="0.6"></label>
+  <label>spread <input id="spread" type="range" min="0" max="2" step="0.01" value="1"></label>
+</div>
+<div class="readout" id="read"></div>
+<div class="note">raise K → the voices lock into one note. CC1→K CC2→spread · note=register · order r shown as ring</div>
+
+<script type="module">
+import { MidiHub, armAudio } from './core/midi.js';
+import { tune, primeRatio } from './core/tuning.js';
+
+const ctx = new (window.AudioContext || window.webkitAudioContext)();
+const master = ctx.createGain(); master.gain.value = 0.0; master.connect(ctx.destination);
+const N = 12;
+let K = 0.6, spreadAmt = 1, base = 180;
+
+// natural frequencies from prime ratios (A2), so the un-synced cluster is inharmonic
+const omega0 = [];
+for (let i=0;i<N;i++) omega0.push(0.7 + primeRatio(i)*0.5);
+const theta = omega0.map(()=>Math.random()*Math.PI*2);
+
+// one persistent sine per voice, panned across the stereo field
+const voices = [];
+for (let i=0;i<N;i++){
+  const o=ctx.createOscillator(); o.type='sine';
+  const gn=ctx.createGain(); gn.gain.value=0.7/N;
+  const pn=ctx.createStereoPanner(); pn.pan.value=(i/(N-1))*2-1;
+  o.connect(gn).connect(pn).connect(master); o.start();
+  voices.push({o,gn,pn});
+}
+armAudio(ctx, document.getElementById('arm'));
+document.getElementById('arm').addEventListener('pointerdown', ()=>master.gain.setTargetAtTime(0.5,ctx.currentTime,0.4), {once:true});
+
+const bind=(id,fn)=>{const el=document.getElementById(id); el.oninput=()=>fn(+el.value);};
+bind('K',v=>K=v); bind('spread',v=>spreadAmt=v);
+const midi=new MidiHub();
+midi.on('note',(n,vel,on)=>{ if(on) base = tune(n,{mode:'harmonic',base:120,refNote:60}); });
+midi.on('cc',(num,val)=>{ if(num===1){K=val*6; document.getElementById('K').value=K;} else if(num===2){spreadAmt=val*2; document.getElementById('spread').value=spreadAmt;} });
+midi.init(document.getElementById('midi'));
+
+const canvas=document.getElementById('c'); const g=canvas.getContext('2d');
+function resize(){ canvas.width=innerWidth*devicePixelRatio; canvas.height=innerHeight*devicePixelRatio; }
+addEventListener('resize',resize); resize();
+
+let vbar=1;
+function step(dt){
+  // order parameter r, mean phase psi
+  let sx=0, sy=0;
+  for(let i=0;i<N;i++){ sx+=Math.cos(theta[i]); sy+=Math.sin(theta[i]); }
+  sx/=N; sy/=N; const r=Math.hypot(sx,sy), psi=Math.atan2(sy,sx);
+  const vels=new Array(N);
+  let vsum=0;
+  for(let i=0;i<N;i++){ const v = omega0[i]*spreadAmt + K*r*Math.sin(psi-theta[i]); vels[i]=v; vsum+=v; }
+  vbar=vsum/N;
+  for(let i=0;i<N;i++){ theta[i]+= vels[i]*dt; }
+  return {r,psi,vels};
+}
+
+function frame(){
+  const st=step(0.03);
+  // map instantaneous phase velocity to audio: synced → unison at base
+  for(let i=0;i<N;i++){
+    const f = base * Math.exp(0.28*(st.vels[i]-vbar));
+    voices[i].o.frequency.setTargetAtTime(f, ctx.currentTime, 0.03);
+  }
+  // fusion: synced choir is louder & fuller
+  master.gain.setTargetAtTime(0.2+0.5*st.r, ctx.currentTime, 0.1);
+
+  const W=canvas.width,H=canvas.height; g.fillStyle='rgba(4,8,10,0.25)'; g.fillRect(0,0,W,H);
+  const cx=W/2, cy=H*0.55, rad=Math.min(W,H)*0.32;
+  g.strokeStyle='#1d3a34'; g.lineWidth=1.5; g.beginPath(); g.arc(cx,cy,rad,0,7); g.stroke();
+  for(let i=0;i<N;i++){ const x=cx+Math.cos(theta[i])*rad, y=cy+Math.sin(theta[i])*rad;
+    g.fillStyle='#7fe8c0'; g.beginPath(); g.arc(x,y,6,0,7); g.fill(); }
+  // order vector
+  const ox=cx+Math.cos(st.psi)*rad*st.r, oy=cy+Math.sin(st.psi)*rad*st.r;
+  g.strokeStyle='#d0ff5a'; g.lineWidth=3; g.beginPath(); g.moveTo(cx,cy); g.lineTo(ox,oy); g.stroke();
+  g.beginPath(); g.arc(cx,cy,rad*st.r,0,7); g.strokeStyle='rgba(208,255,90,0.4)'; g.lineWidth=1; g.stroke();
+  document.getElementById('read').textContent=`K ${K.toFixed(2)}  spread ${spreadAmt.toFixed(2)}  order r ${st.r.toFixed(3)}  base ${base.toFixed(0)}Hz  ${st.r>0.95?'⟳ LOCKED':''}`;
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>

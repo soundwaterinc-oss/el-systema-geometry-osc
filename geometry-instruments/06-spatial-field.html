@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Spatial Field · EL-SYSTEMA</title>
+<link rel="stylesheet" href="./core/style.css" />
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud">
+  <span class="title">SPATIAL FIELD <small>modal shape as a space · binaural HRTF · A1/A5</small></span>
+  <button id="arm">▶ audio</button>
+  <label>midi <select id="midi"></select></label>
+  <label>tuning <select id="tune"></select></label>
+  <label>orbit <input id="orbit" type="range" min="0" max="1" step="0.01" value="0"></label>
+</div>
+<div class="readout" id="read"></div>
+<div class="note">🎧 headphones. move the source over the field — it moves outside your head. CC74/71=xy · modwheel=orbit · sustain=drone</div>
+
+<script type="module">
+import { membraneModes, membraneExcitation } from './core/modal.js';
+import { tune, TUNING_MODES } from './core/tuning.js';
+import { MidiHub, armAudio } from './core/midi.js';
+
+const ctx = new (window.AudioContext || window.webkitAudioContext)();
+const master = ctx.createGain(); master.gain.value=0.8; master.connect(ctx.destination);
+if(ctx.listener.positionX){ ctx.listener.positionX.value=0; ctx.listener.positionY.value=0; ctx.listener.positionZ.value=0;
+  ctx.listener.forwardZ.value=-1; ctx.listener.upY.value=1; }
+
+const modes = membraneModes(5,5);
+let fBase=200, bright=0.55, tuneMode='phi', orbit=0, srcX=0.3, srcY=0.0, orbAng=0;
+
+const tuneSel=document.getElementById('tune');
+for(const m of TUNING_MODES){const o=document.createElement('option');o.value=o.textContent=m;tuneSel.appendChild(o);} tuneSel.value=tuneMode;
+tuneSel.onchange=()=>tuneMode=tuneSel.value;
+document.getElementById('orbit').oninput=e=>orbit=+e.target.value;
+
+function makePanner(x,y){
+  const p=ctx.createPanner(); p.panningModel='HRTF'; p.distanceModel='inverse';
+  p.refDistance=0.6; p.rolloffFactor=1.1;
+  setPos(p,x,y); return p;
+}
+function setPos(p,x,y){ const X=x*2.2, Y=y*1.2, Z=-0.9 - Math.abs(x)*0.3;
+  if(p.positionX){ p.positionX.setTargetAtTime(X,ctx.currentTime,0.03); p.positionY.setTargetAtTime(Y,ctx.currentTime,0.03); p.positionZ.setTargetAtTime(Z,ctx.currentTime,0.03); }
+  else { p.setPosition(X,Y,Z); } }
+
+// one-shot modal strike placed at the source position
+function strike(x,y,vel){
+  if(ctx.state!=='running') return;
+  const r=Math.min(1,Math.hypot(x,y)), th=Math.atan2(y,x);
+  const amps=membraneExcitation(modes,r,th);
+  const panner=makePanner(x,y);
+  const bus=ctx.createGain(); bus.connect(panner).connect(master);
+  const freqs=modes.map(m=>fBase*m.ratio); const fMin=Math.min(...freqs);
+  const t=ctx.currentTime;
+  let made=0;
+  for(let i=0;i<modes.length;i++){ const f=freqs[i]; if(f<25||f>16000)continue;
+    const a=Math.abs(amps[i])*Math.pow(f/fMin,(bright-0.5)*1.2); if(a<0.01)continue;
+    const tau=2.2*Math.pow(fMin/f,0.6);
+    const o=ctx.createOscillator(); o.type='sine'; o.frequency.value=f;
+    const g=ctx.createGain(); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(a*0.12*vel,t+0.004);
+    g.gain.exponentialRampToValueAtTime(0.0005,t+tau);
+    o.connect(g).connect(bus); o.start(t); o.stop(t+tau+0.05); made++;
+  }
+  lastStrike={x,y}; movingPanner=panner;
+}
+let movingPanner=null, lastStrike={x:0.3,y:0};
+
+// sustained drone (sustain pedal)
+let drone=null;
+function startDrone(x,y){
+  stopDrone();
+  const r=Math.min(1,Math.hypot(x,y)), th=Math.atan2(y,x);
+  const amps=membraneExcitation(modes,r,th);
+  const panner=makePanner(x,y); const bus=ctx.createGain(); bus.gain.value=0.5; bus.connect(panner).connect(master);
+  const oscs=[]; const freqs=modes.map(m=>fBase*m.ratio); const fMin=Math.min(...freqs);
+  for(let i=0;i<modes.length;i++){ const f=freqs[i]; if(f<25||f>16000)continue; const a=Math.abs(amps[i]); if(a<0.02)continue;
+    const o=ctx.createOscillator(); o.type='sine'; o.frequency.value=f; const g=ctx.createGain(); g.gain.value=a*0.05;
+    o.connect(g).connect(bus); o.start(); oscs.push(o); }
+  drone={panner,bus,oscs}; movingPanner=panner;
+}
+function stopDrone(){ if(!drone)return; const t=ctx.currentTime; drone.bus.gain.setTargetAtTime(0,t,0.3); const d=drone; setTimeout(()=>d.oscs.forEach(o=>o.stop()),800); drone=null; }
+
+const canvas=document.getElementById('c');
+function toField(cx0,cy0){ const rect=canvas.getBoundingClientRect(); const cx=rect.left+rect.width/2,cy=rect.top+rect.height/2; const rad=Math.min(rect.width,rect.height)*0.44; return {x:(cx0-cx)/rad, y:(cy0-cy)/rad}; }
+let dragging=false;
+canvas.addEventListener('pointerdown',e=>{dragging=true; const f=toField(e.clientX,e.clientY); srcX=f.x;srcY=f.y; strike(f.x,f.y,0.85); if(drone) startDrone(f.x,f.y);});
+canvas.addEventListener('pointermove',e=>{ if(!dragging)return; const f=toField(e.clientX,e.clientY); srcX=f.x;srcY=f.y; if(movingPanner) setPos(movingPanner,f.x,f.y); });
+addEventListener('pointerup',()=>dragging=false);
+
+const midi=new MidiHub();
+midi.on('note',(n,vel,on)=>{ if(!on)return; fBase=tune(n,{mode:tuneMode,base:200,refNote:60}); bright=0.35+vel*0.6; strike(srcX,srcY,vel); if(drone) startDrone(srcX,srcY); });
+midi.on('cc',(num,val)=>{ if(num===74){srcX=val*2-1; if(movingPanner)setPos(movingPanner,srcX,srcY);} else if(num===71){srcY=val*2-1; if(movingPanner)setPos(movingPanner,srcX,srcY);} else if(num===1){orbit=val; document.getElementById('orbit').value=val;} else if(num===64){ if(val>0.5)startDrone(srcX,srcY); else stopDrone(); } });
+midi.init(document.getElementById('midi'));
+armAudio(ctx, document.getElementById('arm'));
+
+// ---- viz: mode field heatmap + source + listener ----
+const GN=88; const g=canvas.getContext('2d'); const off=document.createElement('canvas'); off.width=off.height=GN; const offctx=off.getContext('2d'); const img=offctx.createImageData(GN,GN);
+import { besselJArray } from './core/bessel.js';
+const inDisk=new Uint8Array(GN*GN); const grids=modes.map(()=>new Float32Array(GN*GN));
+for(let gy=0;gy<GN;gy++)for(let gx=0;gx<GN;gx++){ const p=gy*GN+gx; const x=(gx/(GN-1))*2-1,y=(gy/(GN-1))*2-1,r=Math.hypot(x,y); if(r>1){inDisk[p]=0;continue;} inDisk[p]=1; const th=Math.atan2(y,x); for(let i=0;i<modes.length;i++){ const md=modes[i]; grids[i][p]=besselJArray(md.alpha*r,md.m)[md.m]*Math.cos(md.m*th); } }
+function resize(){ canvas.width=innerWidth*devicePixelRatio; canvas.height=innerHeight*devicePixelRatio; } addEventListener('resize',resize); resize();
+
+const field=new Float32Array(GN*GN);
+function frame(){
+  if(orbit>0.001){ orbAng+=orbit*0.05; const rr=Math.hypot(srcX,srcY)||0.5; srcX=Math.cos(orbAng)*rr; srcY=Math.sin(orbAng)*rr; if(movingPanner)setPos(movingPanner,srcX,srcY); }
+  // static field of excitation at source (shows the mode shape being sampled)
+  const r=Math.min(1,Math.hypot(srcX,srcY)),th=Math.atan2(srcY,srcX); const amps=membraneExcitation(modes,r,th);
+  field.fill(0); for(let i=0;i<modes.length;i++){ const a=amps[i]; if(Math.abs(a)<0.02)continue; const gr=grids[i]; for(let p=0;p<field.length;p++) field[p]+=a*gr[p]; }
+  const d=img.data; for(let p=0;p<field.length;p++){ const q=p*4; if(!inDisk[p]){d[q]=4;d[q+1]=8;d[q+2]=10;d[q+3]=255;continue;} const v=field[p],pos=Math.max(0,v),neg=Math.max(0,-v);
+    d[q]=Math.min(255,16+pos*260+neg*30); d[q+1]=Math.min(255,26+pos*180+neg*150); d[q+2]=Math.min(255,30+neg*260+pos*30); d[q+3]=255; }
+  offctx.putImageData(img,0,0);
+  const W=canvas.width,H=canvas.height,rad=Math.min(W,H)*0.44,cx=W/2,cy=H/2; g.clearRect(0,0,W,H);
+  g.save(); g.beginPath(); g.arc(cx,cy,rad,0,7); g.clip(); g.imageSmoothingEnabled=true; g.drawImage(off,cx-rad,cy-rad,rad*2,rad*2); g.restore();
+  g.strokeStyle='#1d3a34'; g.lineWidth=2; g.beginPath(); g.arc(cx,cy,rad,0,7); g.stroke();
+  // listener at centre
+  g.strokeStyle='#7fe8ff'; g.beginPath(); g.arc(cx,cy,10,0,7); g.stroke(); g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx,cy-16); g.stroke();
+  // source
+  const sx=cx+srcX*rad, sy=cy+srcY*rad; g.fillStyle='#d0ff5a'; g.beginPath(); g.arc(sx,sy,7,0,7); g.fill();
+  document.getElementById('read').textContent=`fBase ${fBase.toFixed(1)}Hz  tune ${tuneMode}  src (${srcX.toFixed(2)},${srcY.toFixed(2)})  orbit ${orbit.toFixed(2)} ${drone?' [DRONE]':''}`;
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>
