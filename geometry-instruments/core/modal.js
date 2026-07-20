@@ -148,12 +148,15 @@ export function renderModalBuffer(ctx, modes, amps, opts = {}) {
 }
 
 // Fire a rendered buffer through a gain node (one-shot, polyphonic).
-export function playBuffer(ctx, buf, destination, vel = 1) {
+// `when` is an absolute AudioContext time; omit for "now". The scheduler passes
+// a future time so auto-play stays smooth even when a background tab throttles
+// the JS timer.
+export function playBuffer(ctx, buf, destination, vel = 1, when = 0) {
   const src = ctx.createBufferSource();
   src.buffer = buf;
   const g = ctx.createGain();
   g.gain.value = 0.25 + 0.75 * vel;
   src.connect(g).connect(destination || ctx.destination);
-  src.start();
+  src.start(when && when > ctx.currentTime ? when : ctx.currentTime);
   return src;
 }

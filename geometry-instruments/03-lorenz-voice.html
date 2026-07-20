@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Lorenz Voice · EL-SYSTEMA</title>
+<link rel="icon" href="data:," />
 <link rel="stylesheet" href="./core/style.css" />
 </head>
 <body>
@@ -16,16 +17,21 @@
   <label>σ <input id="sig" type="range" min="4" max="16" step="0.1" value="10"></label>
   <label>β <input id="bet" type="range" min="1.5" max="4" step="0.05" value="2.667"></label>
   <label>speed <input id="spd" type="range" min="0.2" max="3" step="0.01" value="1"></label>
+  <label>vol <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8"></label>
+  <button id="auto">AUTO ∞</button>
 </div>
 <div class="readout" id="read"></div>
-<div class="note">generative — no tempo. CC1→ρ CC2→σ CC3→β · pitchbend→time speed · sustain=freeze · note=register</div>
+<div class="note">generative — no tempo. CC1→ρ CC2→σ CC3→β · pitchbend→time speed · sustain=freeze · note=register · AUTO = self-evolving (runs in background)</div>
 
 <script type="module">
 import { MidiHub, armAudio } from './core/midi.js';
 import { tune } from './core/tuning.js';
+import { AutoPilot, controlLoop } from './core/autopilot.js';
 
 const ctx = new (window.AudioContext || window.webkitAudioContext)();
-const master = ctx.createGain(); master.gain.value = 0.0; master.connect(ctx.destination);
+const outGain = ctx.createGain(); outGain.gain.value = 0.8; outGain.connect(ctx.destination); // MASTER GAIN
+const master = ctx.createGain(); master.gain.value = 0.0; master.connect(outGain);
+document.getElementById('vol').oninput = (e) => outGain.gain.setTargetAtTime(+e.target.value, ctx.currentTime, 0.02);
 const osc = ctx.createOscillator(); osc.type = 'sawtooth';
 const sub = ctx.createOscillator(); sub.type = 'sine';
 const oscG = ctx.createGain(); oscG.gain.value = 0.6;
@@ -78,19 +84,29 @@ function logMap(x, lo, hi){ // x roughly in [-25,25] → [lo,hi] log
   const t = Math.min(1, Math.max(0, (x+25)/50));
   return lo * Math.pow(hi/lo, t);
 }
+const clampv=(v,a,b)=>v<a?a:v>b?b:v;
+
+// ---- AUTO + background-safe simulation (setInterval, not rAF) ----
+const auto = new AutoPilot(ctx, { rate: 1 });
+const autoBtn = document.getElementById('auto');
+autoBtn.onclick = () => { auto.enabled = !auto.enabled; autoBtn.classList.toggle('armed', auto.enabled); if(ctx.state!=='running') ctx.resume(); master.gain.setTargetAtTime(0.5, ctx.currentTime, 0.4); };
+let curF = 260;
+function sim(dt){
+  const { v } = auto.update(dt);
+  if(auto.enabled){ // parameters self-evolve on natural LFOs
+    rho = 28 + 9*v.golden; bet = 2.3 + 0.8*v.gauss; speed = 0.7 + 0.9*(v.lorenz*0.5+0.5); center = 200*(1+0.4*v.kuramoto_r);
+    document.getElementById('rho').value=rho; document.getElementById('bet').value=bet; document.getElementById('spd').value=Math.max(0.2,speed);
+  }
+  if(!freeze){ const ns = clampv(Math.round(dt*2.16*Math.max(0.2,speed)/0.006),1,800); for(let i=0;i<ns;i++) s = rk4(s, 0.006); }
+  const f = center/260 * logMap(s.x, 60, 1200); curF=f;
+  osc.frequency.setTargetAtTime(f, ctx.currentTime, 0.02);
+  sub.frequency.setTargetAtTime(f*0.5, ctx.currentTime, 0.03);
+  filt.frequency.setTargetAtTime(300 + Math.abs(s.z)*90, ctx.currentTime, 0.03);
+  pan.pan.setTargetAtTime(clampv(s.y/26,-1,1), ctx.currentTime, 0.05);
+}
+controlLoop(sim, 30);
 
 function frame(){
-  if(!freeze){ for(let i=0;i<6;i++) s = rk4(s, 0.006*speed); }
-  // map to audio
-  const f = center/260 * logMap(s.x, 60, 1200);
-  const subf = f*0.5;
-  const cutoff = 300 + Math.abs(s.z)*90;
-  const p = Math.max(-1,Math.min(1, s.y/26));
-  osc.frequency.setTargetAtTime(f, ctx.currentTime, 0.02);
-  sub.frequency.setTargetAtTime(subf, ctx.currentTime, 0.03);
-  filt.frequency.setTargetAtTime(cutoff, ctx.currentTime, 0.03);
-  pan.pan.setTargetAtTime(p, ctx.currentTime, 0.05);
-
   trail.push({x:s.x,z:s.z}); if(trail.length>1400) trail.shift();
   const W=canvas.width,H=canvas.height;
   g.fillStyle='rgba(4,8,10,0.18)'; g.fillRect(0,0,W,H);
@@ -100,7 +116,7 @@ function frame(){
   g.strokeStyle='rgba(127,232,192,0.5)'; g.stroke();
   const hx=cx+s.x*sc, hy=cy-(s.z-25)*sc;
   g.fillStyle='#d0ff5a'; g.beginPath(); g.arc(hx,hy,4,0,7); g.fill();
-  document.getElementById('read').textContent=`ρ ${rho.toFixed(1)}  σ ${sig.toFixed(1)}  β ${bet.toFixed(2)}  speed ${speed.toFixed(2)}  f ${f.toFixed(0)}Hz ${freeze?' [FROZEN]':''}`;
+  document.getElementById('read').textContent=`ρ ${rho.toFixed(1)}  σ ${sig.toFixed(1)}  β ${bet.toFixed(2)}  speed ${speed.toFixed(2)}  f ${curF.toFixed(0)}Hz ${freeze?' [FROZEN]':''}${auto.enabled?'  AUTO∞':''}`;
   requestAnimationFrame(frame);
 }
 frame();

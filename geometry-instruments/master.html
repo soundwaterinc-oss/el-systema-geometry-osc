@@ -62,6 +62,8 @@
       <button id="tCap" class="mini" title="capture">●</button>
     </span>
     <button class="arm" id="arm">▶ audio</button>
+    <button class="arm" id="autoperf" title="function-driven auto performance (runs in background)">AUTO ∞</button>
+    <label style="color:#7fae90">vol <input id="mvol" type="range" min="0" max="1" step="0.01" value="0.9" style="width:84px"></label>
     <select id="midi" class="mini"></select>
     <span class="oled" id="oled">EL-SYSTEMA · 🎧 headphones · click to start audio</span>
   </div>
@@ -86,6 +88,7 @@ const limiter = ctx.createDynamicsCompressor();
 limiter.threshold.value = -8; limiter.knee.value = 6; limiter.ratio.value = 12; limiter.attack.value = 0.003; limiter.release.value = 0.2;
 const masterGain = ctx.createGain(); masterGain.gain.value = 0.9;
 masterGain.connect(limiter).connect(ctx.destination);
+document.getElementById('mvol').oninput = (e) => masterGain.gain.setTargetAtTime(+e.target.value, ctx.currentTime, 0.02);
 if (ctx.listener.positionX) { ctx.listener.positionX.value = 0; ctx.listener.positionZ.value = 0; ctx.listener.forwardZ.value = -1; ctx.listener.upY.value = 1; }
 
 // ============================ slots ============================
@@ -125,6 +128,7 @@ const SRC = SOURCE_NAMES(N);
 let page = 0;                 // 0 GEOMETRY, 1 MODULATION, 2 SPACE
 let globalRunning = true;     // transport play/freeze
 let lastTouched = 0;          // slot index for Track◀▶ operator edits
+let autoPerform = false, perfT = 0, perfSync = 0; // function-driven auto performance
 const captures = [];
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 const PAGE_LABELS = ['GEOMETRY — enc: fBase / shape1 / shape2','MODULATION — enc: source / depth / dest (op=Track◀▶)','SPACE — enc: X / Y / spread·rotate'];
@@ -137,6 +141,22 @@ function control(){
   dt = clamp(dt, 0, 0.05);
   const stepDt = globalRunning ? dt : 0;      // global freeze halts all time
   const mods = matrix.compute(slots, stepDt, globalRunning);
+
+  // AUTO PERFORM: the whole mix evolves on natural functions (background-safe,
+  // this loop is setInterval not rAF). Each slot gets a phase-shifted drift.
+  if(autoPerform && globalRunning){
+    perfT += stepDt; const v = matrix.lfos.values;
+    for(let i=0;i<N;i++){ const s=slots[i], ph=i*0.8;
+      s.on = true;
+      s.level = clamp(0.22 + 0.6*Math.abs(Math.sin(perfT*0.07+ph))*(0.5+0.5*v.pink), 0, 1);
+      s.base.shape1 = clamp(0.5 + 0.4*Math.sin(perfT*0.13+ph+v.lorenz), 0, 1);
+      s.base.shape2 = clamp(0.5 + 0.4*Math.sin(perfT*0.09+ph*1.3), 0, 1);
+      s.base.fBase  = clamp(120*(1 + 0.4*Math.sin(perfT*0.03+ph) + 0.2*v.lorenz), 40, 1200);
+      s.base.spaceX = clamp(Math.sin(perfT*0.05+ph), -1, 1);
+      s.base.spaceY = clamp(Math.cos(perfT*0.043+ph*0.7), -1, 1);
+    }
+    perfSync += stepDt; if(perfSync>0.15){ perfSync=0; for(let i=0;i<N;i++) syncStrip(i); }
+  }
 
   for(const s of slots){
     const b = s.base;
@@ -263,6 +283,8 @@ midi.on('note',(note,vel,on)=>{
 midi.init(document.getElementById('midi'));
 armAudio(ctx, document.getElementById('arm'));
 document.getElementById('arm').addEventListener('pointerdown',()=>document.getElementById('arm').classList.add('on'),{once:true});
+const apBtn=document.getElementById('autoperf');
+apBtn.onclick=()=>{ autoPerform=!autoPerform; apBtn.classList.toggle('on',autoPerform); if(autoPerform && ctx.state!=='running') ctx.resume(); oled('AUTO PERFORM '+(autoPerform?'ON — function-driven':'OFF')); };
 
 // ============================ UI (hardware mirror + mouse) ============================
 const stripsEl = document.getElementById('strips');

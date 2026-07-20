@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Chladni Plate · EL-SYSTEMA</title>
+<link rel="icon" href="data:," />
 <link rel="stylesheet" href="./core/style.css" />
 </head>
 <body>
@@ -15,18 +16,23 @@
   <label>tuning <select id="tune"></select></label>
   <label>edge <input id="morph" type="range" min="0" max="1" step="0.001" value="0"></label>
   <span id="edgelbl">clamped</span>
+  <label>vol <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8"></label>
+  <button id="auto">AUTO ∞</button>
 </div>
 <div class="readout" id="read"></div>
-<div class="note">strike to sing the plate · fader/CC16 morphs clamped↔ss↔free · nodal lines = yellow sand</div>
+<div class="note">strike to sing the plate · fader/CC16 morphs clamped↔ss↔free · nodal lines = yellow sand · AUTO = self-play (runs in background)</div>
 
 <script type="module">
 import { plateMorphRatios, renderModalBuffer, playBuffer } from './core/modal.js';
 import { besselJArray } from './core/bessel.js';
 import { tune, TUNING_MODES } from './core/tuning.js';
 import { MidiHub, armAudio } from './core/midi.js';
+import { AutoPilot, controlLoop } from './core/autopilot.js';
 
 const ctx = new (window.AudioContext || window.webkitAudioContext)();
-const master = ctx.createGain(); master.gain.value = 0.6; master.connect(ctx.destination);
+const outGain = ctx.createGain(); outGain.gain.value = 0.8; outGain.connect(ctx.destination); // MASTER GAIN
+const master = ctx.createGain(); master.gain.value = 0.6; master.connect(outGain);
+document.getElementById('vol').oninput = (e) => outGain.gain.setTargetAtTime(+e.target.value, ctx.currentTime, 0.02);
 
 let fBase = 140, bright = 0.6, tauRef = 3.2, tuneMode = 'prime', morph = 0;
 const M = 5, NN = 4;
@@ -55,16 +61,17 @@ function excite(r, theta) {
 
 const strikes = [];
 let lastStrike = null;
-function strike(r, theta, vel) {
+function strike(r, theta, vel, when = 0) {
   if (ctx.state !== 'running') return;
   const amps = excite(r, theta);
   const buf = renderModalBuffer(ctx, modes, amps, {
     fBase, tauRef, tauExp: 0.75, bright, gain: 0.85,
   });
-  playBuffer(ctx, buf, master, vel);
-  strikes.push({ r, theta, t0: ctx.currentTime, vel });
+  playBuffer(ctx, buf, master, vel, when);
+  const t0 = when && when > ctx.currentTime ? when : ctx.currentTime;
+  strikes.push({ r, theta, t0, vel });
   if (strikes.length > 4) strikes.shift();
-  lastStrike = { r, theta, t0: ctx.currentTime };
+  lastStrike = { r, theta, t0 };
 }
 
 const canvas = document.getElementById('c');
@@ -83,6 +90,25 @@ midi.on('cc', (num,val) => { if(num===16){ setMorph(val); document.getElementByI
 midi.on('aftertouch', (val)=>{ tauRef=1+val*6; });
 midi.init(document.getElementById('midi'));
 armAudio(ctx, document.getElementById('arm'));
+
+// ---- AUTO: function-driven self-play, background-safe ----
+const auto = new AutoPilot(ctx, { rate: 1.3 });
+const autoBtn = document.getElementById('auto');
+autoBtn.onclick = () => { auto.enabled = !auto.enabled; autoBtn.classList.toggle('armed', auto.enabled); if (auto.enabled && ctx.state !== 'running') ctx.resume(); };
+const clampv = (v, a, b) => (v < a ? a : v > b ? b : v);
+controlLoop((dt) => {
+  const { v, events } = auto.update(dt);
+  if (!auto.enabled) return;
+  fBase = clampv(110 * (1 + 0.5 * v.lorenz), 50, 420);
+  tauRef = 2 + 1.6 * v.gauss;
+  bright = clampv(0.5 + 0.4 * v.pink, 0, 1);
+  const nm = clampv((v.golden * 0.5 + 0.5), 0, 1); // edge condition slowly sweeps
+  if (Math.abs(nm - morph) > 0.02) { setMorph(nm); document.getElementById('morph').value = morph; } // throttle grid rebuild
+  for (const when of events) {
+    const rr = clampv(0.2 + 0.6 * Math.abs(v.kuramoto_r) + (Math.random() - 0.5) * 0.2, 0, 0.95);
+    strike(rr, v.lorenz * Math.PI + Math.random() * 0.8, clampv(0.5 + 0.35 * Math.abs(v.gauss), 0.2, 1), when);
+  }
+});
 
 // ---- nodal-line field render ----
 const GN = 140;

@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Bessel Membrane · EL-SYSTEMA</title>
+<link rel="icon" href="data:," />
 <link rel="stylesheet" href="./core/style.css" />
 </head>
 <body>
@@ -14,19 +15,24 @@
   <label>midi <select id="midi"></select></label>
   <label>tuning <select id="tune"></select></label>
   <label>size <input id="size" type="range" min="60" max="440" value="180"></label>
+  <label>vol <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8"></label>
+  <button id="auto">AUTO ∞</button>
 </div>
 <div class="readout" id="read"></div>
-<div class="note">drag / tap the membrane to strike · CC74=x CC71=y · vel=brightness · AT=decay</div>
+<div class="note">drag / tap the membrane to strike · CC74=x CC71=y · vel=brightness · AT=decay · AUTO = function-driven self-play (keeps running in background)</div>
 
 <script type="module">
 import { membraneModes, membraneExcitation, renderModalBuffer, playBuffer } from './core/modal.js';
 import { besselJArray } from './core/bessel.js';
 import { tune, TUNING_MODES } from './core/tuning.js';
 import { MidiHub, armAudio } from './core/midi.js';
+import { AutoPilot, controlLoop } from './core/autopilot.js';
 
 const ctx = new (window.AudioContext || window.webkitAudioContext)();
-const master = ctx.createGain(); master.gain.value = 0.7; master.connect(ctx.destination);
+const outGain = ctx.createGain(); outGain.gain.value = 0.8; outGain.connect(ctx.destination); // MASTER GAIN
+const master = ctx.createGain(); master.gain.value = 0.7; master.connect(outGain);
 const reverbish = ctx.createGain(); reverbish.connect(master); // (simple bus)
+document.getElementById('vol').oninput = (e) => outGain.gain.setTargetAtTime(+e.target.value, ctx.currentTime, 0.02);
 
 const modes = membraneModes(5, 5);
 let fBase = 180;        // struck size (Hz), driven by note + size slider
@@ -69,21 +75,26 @@ const inDisk = new Uint8Array(GN * GN);
 // The visual runs on its own performance.now() clock so the membrane still
 // breathes even if the AudioContext is momentarily suspended.
 const strikes = []; // {amps, ratios, taus, t0}
-function strike(r, theta, vel) {
+// `when` is an absolute AudioContext time (used by the background scheduler);
+// the visual echo is delayed to match so foreground playback stays in sync.
+function strike(r, theta, vel, when = 0) {
   const amps = membraneExcitation(modes, r, theta);
   if (ctx.state === 'running') {
     const buf = renderModalBuffer(ctx, modes, amps, {
       fBase, tauRef, tauExp: 0.6, bright: bright * 0.5 + vel * 0.5, gain: 0.9,
     });
-    playBuffer(ctx, buf, reverbish, vel);
+    playBuffer(ctx, buf, reverbish, vel, when);
   }
-  // Visual echo: envelope + inharmonic ratios (animated at a slowed, legible rate).
   const freqs = modes.map((m) => fBase * m.ratio);
   const fMin = Math.min(...freqs);
   const taus = freqs.map((f) => tauRef * Math.pow(fMin / f, 0.6));
-  strikes.push({ amps, ratios: modes.map((m) => m.ratio), taus, t0: performance.now() / 1000 });
-  if (strikes.length > 24) strikes.shift();
-  lastStrike = { r, theta };
+  const ratios = modes.map((m) => m.ratio);
+  const delay = when ? Math.max(0, (when - ctx.currentTime)) * 1000 : 0;
+  setTimeout(() => {
+    strikes.push({ amps, ratios, taus, t0: performance.now() / 1000 });
+    if (strikes.length > 24) strikes.shift();
+    lastStrike = { r, theta };
+  }, delay);
 }
 let lastStrike = null;
 
@@ -121,6 +132,29 @@ midi.on('aftertouch', (val) => { tauRef = 0.6 + val * 5.5; });
 midi.init(document.getElementById('midi'));
 
 armAudio(ctx, document.getElementById('arm'));
+
+// ---- AUTO: function-driven self-play, background-safe (setInterval + lookahead) ----
+const auto = new AutoPilot(ctx, { rate: 1.7 });
+const autoBtn = document.getElementById('auto');
+autoBtn.onclick = () => {
+  auto.enabled = !auto.enabled;
+  autoBtn.classList.toggle('armed', auto.enabled);
+  if (auto.enabled && ctx.state !== 'running') ctx.resume();
+};
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+controlLoop((dt) => {
+  const { v, events } = auto.update(dt);
+  if (!auto.enabled) return;
+  // parameters drift on natural-function LFOs (no scale, no tempo)
+  fBase = clamp(150 * (1 + 0.6 * v.lorenz), 60, 640);
+  tauRef = 2 + 1.2 * v.gauss;
+  bright = clamp(0.5 + 0.4 * v.pink, 0, 1);
+  for (const when of events) {
+    const rr = clamp(0.25 + 0.6 * (v.golden * 0.5 + 0.5) + (Math.random() - 0.5) * 0.2, 0, 0.98);
+    const th = v.lorenz * Math.PI + Math.random() * 0.6;
+    strike(rr, th, clamp(0.45 + 0.4 * Math.abs(v.gauss), 0.2, 1), when);
+  }
+});
 
 // ---- render loop ----
 const g = canvas.getContext('2d');

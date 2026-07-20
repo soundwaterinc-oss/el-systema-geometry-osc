@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Spatial Field · EL-SYSTEMA</title>
+<link rel="icon" href="data:," />
 <link rel="stylesheet" href="./core/style.css" />
 </head>
 <body>
@@ -14,17 +15,22 @@
   <label>midi <select id="midi"></select></label>
   <label>tuning <select id="tune"></select></label>
   <label>orbit <input id="orbit" type="range" min="0" max="1" step="0.01" value="0"></label>
+  <label>vol <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8"></label>
+  <button id="auto">AUTO ∞</button>
 </div>
 <div class="readout" id="read"></div>
-<div class="note">🎧 headphones. move the source over the field — it moves outside your head. CC74/71=xy · modwheel=orbit · sustain=drone</div>
+<div class="note">🎧 headphones. move the source over the field — it moves outside your head. CC74/71=xy · modwheel=orbit · sustain=drone · AUTO = self-play (runs in background)</div>
 
 <script type="module">
 import { membraneModes, membraneExcitation } from './core/modal.js';
 import { tune, TUNING_MODES } from './core/tuning.js';
 import { MidiHub, armAudio } from './core/midi.js';
+import { AutoPilot, controlLoop } from './core/autopilot.js';
 
 const ctx = new (window.AudioContext || window.webkitAudioContext)();
-const master = ctx.createGain(); master.gain.value=0.8; master.connect(ctx.destination);
+const outGain = ctx.createGain(); outGain.gain.value=0.8; outGain.connect(ctx.destination); // MASTER GAIN
+const master = ctx.createGain(); master.gain.value=0.8; master.connect(outGain);
+document.getElementById('vol').oninput = (e) => outGain.gain.setTargetAtTime(+e.target.value, ctx.currentTime, 0.02);
 if(ctx.listener.positionX){ ctx.listener.positionX.value=0; ctx.listener.positionY.value=0; ctx.listener.positionZ.value=0;
   ctx.listener.forwardZ.value=-1; ctx.listener.upY.value=1; }
 
@@ -45,15 +51,15 @@ function setPos(p,x,y){ const X=x*2.2, Y=y*1.2, Z=-0.9 - Math.abs(x)*0.3;
   if(p.positionX){ p.positionX.setTargetAtTime(X,ctx.currentTime,0.03); p.positionY.setTargetAtTime(Y,ctx.currentTime,0.03); p.positionZ.setTargetAtTime(Z,ctx.currentTime,0.03); }
   else { p.setPosition(X,Y,Z); } }
 
-// one-shot modal strike placed at the source position
-function strike(x,y,vel){
+// one-shot modal strike placed at the source position (`when` = audio time)
+function strike(x,y,vel,when=0){
   if(ctx.state!=='running') return;
   const r=Math.min(1,Math.hypot(x,y)), th=Math.atan2(y,x);
   const amps=membraneExcitation(modes,r,th);
   const panner=makePanner(x,y);
   const bus=ctx.createGain(); bus.connect(panner).connect(master);
   const freqs=modes.map(m=>fBase*m.ratio); const fMin=Math.min(...freqs);
-  const t=ctx.currentTime;
+  const t = when && when > ctx.currentTime ? when : ctx.currentTime;
   let made=0;
   for(let i=0;i<modes.length;i++){ const f=freqs[i]; if(f<25||f>16000)continue;
     const a=Math.abs(amps[i])*Math.pow(f/fMin,(bright-0.5)*1.2); if(a<0.01)continue;
@@ -95,6 +101,21 @@ midi.on('cc',(num,val)=>{ if(num===74){srcX=val*2-1; if(movingPanner)setPos(movi
 midi.init(document.getElementById('midi'));
 armAudio(ctx, document.getElementById('arm'));
 
+// ---- AUTO + background-safe motion/scheduling ----
+const clampv=(v,a,b)=>v<a?a:v>b?b:v;
+const auto = new AutoPilot(ctx, { rate: 1.3 });
+const autoBtn=document.getElementById('auto');
+autoBtn.onclick=()=>{ auto.enabled=!auto.enabled; autoBtn.classList.toggle('armed',auto.enabled); if(ctx.state!=='running') ctx.resume(); };
+function sim(dt){
+  const { v, events } = auto.update(dt);
+  if(orbit>0.001){ orbAng+=orbit*3*dt; const rr=Math.hypot(srcX,srcY)||0.5; srcX=Math.cos(orbAng)*rr; srcY=Math.sin(orbAng)*rr; if(movingPanner)setPos(movingPanner,srcX,srcY); }
+  if(!auto.enabled) return;
+  fBase=clampv(150*(1+0.5*v.lorenz),40,900); bright=clampv(0.5+0.4*v.pink,0,1);
+  if(orbit<=0.001){ srcX=clampv(0.7*v.golden,-1,1); srcY=clampv(0.7*v.lorenz,-1,1); if(movingPanner)setPos(movingPanner,srcX,srcY); }
+  for(const when of events) strike(srcX,srcY, clampv(0.5+0.35*Math.abs(v.gauss),0.2,1), when);
+}
+controlLoop(sim, 30);
+
 // ---- viz: mode field heatmap + source + listener ----
 const GN=88; const g=canvas.getContext('2d'); const off=document.createElement('canvas'); off.width=off.height=GN; const offctx=off.getContext('2d'); const img=offctx.createImageData(GN,GN);
 import { besselJArray } from './core/bessel.js';
@@ -104,7 +125,7 @@ function resize(){ canvas.width=innerWidth*devicePixelRatio; canvas.height=inner
 
 const field=new Float32Array(GN*GN);
 function frame(){
-  if(orbit>0.001){ orbAng+=orbit*0.05; const rr=Math.hypot(srcX,srcY)||0.5; srcX=Math.cos(orbAng)*rr; srcY=Math.sin(orbAng)*rr; if(movingPanner)setPos(movingPanner,srcX,srcY); }
+  // source motion & auto-play run in sim() (setInterval) so they survive backgrounding.
   // static field of excitation at source (shows the mode shape being sampled)
   const r=Math.min(1,Math.hypot(srcX,srcY)),th=Math.atan2(srcY,srcX); const amps=membraneExcitation(modes,r,th);
   field.fill(0); for(let i=0;i<modes.length;i++){ const a=amps[i]; if(Math.abs(a)<0.02)continue; const gr=grids[i]; for(let p=0;p<field.length;p++) field[p]+=a*gr[p]; }

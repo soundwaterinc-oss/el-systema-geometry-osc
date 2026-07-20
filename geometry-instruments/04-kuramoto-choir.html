@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Kuramoto Choir · EL-SYSTEMA</title>
+<link rel="icon" href="data:," />
 <link rel="stylesheet" href="./core/style.css" />
 </head>
 <body>
@@ -14,16 +15,21 @@
   <label>midi <select id="midi"></select></label>
   <label>coupling K <input id="K" type="range" min="0" max="6" step="0.01" value="0.6"></label>
   <label>spread <input id="spread" type="range" min="0" max="2" step="0.01" value="1"></label>
+  <label>vol <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8"></label>
+  <button id="auto">AUTO ∞</button>
 </div>
 <div class="readout" id="read"></div>
-<div class="note">raise K → the voices lock into one note. CC1→K CC2→spread · note=register · order r shown as ring</div>
+<div class="note">raise K → the voices lock into one note. CC1→K CC2→spread · note=register · order r shown as ring · AUTO = self-gathering (runs in background)</div>
 
 <script type="module">
 import { MidiHub, armAudio } from './core/midi.js';
 import { tune, primeRatio } from './core/tuning.js';
+import { AutoPilot, controlLoop } from './core/autopilot.js';
 
 const ctx = new (window.AudioContext || window.webkitAudioContext)();
-const master = ctx.createGain(); master.gain.value = 0.0; master.connect(ctx.destination);
+const outGain = ctx.createGain(); outGain.gain.value = 0.8; outGain.connect(ctx.destination); // MASTER GAIN
+const master = ctx.createGain(); master.gain.value = 0.0; master.connect(outGain);
+document.getElementById('vol').oninput = (e) => outGain.gain.setTargetAtTime(+e.target.value, ctx.currentTime, 0.02);
 const N = 12;
 let K = 0.6, spreadAmt = 1, base = 180;
 
@@ -69,16 +75,28 @@ function step(dt){
   return {r,psi,vels};
 }
 
-function frame(){
-  const st=step(0.03);
-  // map instantaneous phase velocity to audio: synced → unison at base
-  for(let i=0;i<N;i++){
-    const f = base * Math.exp(0.28*(st.vels[i]-vbar));
-    voices[i].o.frequency.setTargetAtTime(f, ctx.currentTime, 0.03);
+// ---- AUTO + background-safe simulation ----
+const clampv=(v,a,b)=>v<a?a:v>b?b:v;
+const auto = new AutoPilot(ctx, { rate: 1 });
+const autoBtn = document.getElementById('auto');
+autoBtn.onclick = () => { auto.enabled=!auto.enabled; autoBtn.classList.toggle('armed',auto.enabled); if(ctx.state!=='running') ctx.resume(); };
+let lastR=0, lastPsi=0;
+function sim(dt){
+  const { v } = auto.update(dt);
+  if(auto.enabled){ // the crowd gathers and scatters on its own (gauss), register drifts
+    K = clampv(3 + 3*v.gauss, 0, 6); spreadAmt = clampv(1 + 0.8*v.golden, 0, 2); base = 100*(1+0.5*(v.lorenz*0.5+0.5));
+    document.getElementById('K').value=K; document.getElementById('spread').value=spreadAmt;
   }
-  // fusion: synced choir is louder & fuller
+  let rem=Math.min(dt,2), st={r:lastR,psi:lastPsi,vels:new Array(N).fill(0)};
+  while(rem>0){ const h=Math.min(rem,0.03); st=step(h); rem-=h; }
+  for(let i=0;i<N;i++){ const f = base*Math.exp(0.28*(st.vels[i]-vbar)); voices[i].o.frequency.setTargetAtTime(f, ctx.currentTime, 0.03); }
   master.gain.setTargetAtTime(0.2+0.5*st.r, ctx.currentTime, 0.1);
+  lastR=st.r; lastPsi=st.psi;
+}
+controlLoop(sim, 30);
 
+function frame(){
+  const st={ r:lastR, psi:lastPsi };
   const W=canvas.width,H=canvas.height; g.fillStyle='rgba(4,8,10,0.25)'; g.fillRect(0,0,W,H);
   const cx=W/2, cy=H*0.55, rad=Math.min(W,H)*0.32;
   g.strokeStyle='#1d3a34'; g.lineWidth=1.5; g.beginPath(); g.arc(cx,cy,rad,0,7); g.stroke();
