@@ -24,7 +24,7 @@
   .transport button{width:30px;height:26px;margin-left:2px}
   .transport button.active{border-color:#d0ff5a;color:#d0ff5a}
   .strips{display:flex;flex:1;gap:6px;padding:8px 12px 6px}
-  .strip{flex:1;display:flex;flex-direction:column;gap:5px;background:#070f12aa;border:1px solid #10241f;border-radius:5px;padding:7px 6px}
+  .strip{flex:1;display:flex;flex-direction:column;gap:5px;background:#070f1266;border:1px solid #10241f;border-radius:5px;padding:7px 6px}
   .strip .idx{color:#4f7f66;letter-spacing:.14em}
   .strip select{width:100%;font-size:10px;padding:2px}
   .enc{position:relative;height:30px;background:#0a1418;border:1px solid #16302b;border-radius:3px;overflow:hidden;cursor:ns-resize}
@@ -32,7 +32,7 @@
   .enc .val{position:absolute;right:4px;bottom:2px;color:#9fe8c0;font-size:10px;z-index:2}
   .enc .bar{position:absolute;left:0;bottom:0;top:0;background:#123;border-right:2px solid #d0ff5a}
   .fader{position:relative;flex:1;min-height:60px;background:#0a1418;border:1px solid #16302b;border-radius:3px;cursor:ns-resize;overflow:hidden}
-  .fader .fill{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(#0d3,#072)}
+  .fader .fill{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(rgba(0,221,51,0.68),rgba(0,119,34,0.68))}
   .fader .flab{position:absolute;left:4px;top:3px;color:#5f8f6a;font-size:9px;z-index:2}
   .meter{position:absolute;right:2px;top:2px;bottom:2px;width:4px;background:#061;z-index:2}
   .meter i{position:absolute;left:0;right:0;bottom:0;background:#d0ff5a}
@@ -60,6 +60,10 @@
       <button id="tPlay" class="mini active" title="play">▶</button>
       <button id="tStop" class="mini" title="freeze time">■</button>
       <button id="tCap" class="mini" title="capture">●</button>
+    </span>
+    <span class="page-tabs" id="modsub" title="PAGE2 sub-select — Track◀▶ on the XL3">
+      <button id="opBtn" title="MOD operator (Track◀)">op▸</button>
+      <button id="xBtn" title="MOD cross ×src (Track▶)">×▸</button>
     </span>
     <button class="arm" id="arm">▶ audio</button>
     <button class="arm" id="autoperf" title="function-driven auto performance (runs in background)">AUTO ∞</button>
@@ -235,8 +239,12 @@ function faderMove(i,val){ // val 0..1 absolute, with pickup
 function btnTop(i){ const s=slots[i]; s.on=!s.on; oled(`s${i} ${s.on?'ON':'OFF'}`); syncStrip(i); }
 function btnBot(i){ const s=slots[i]; s.latched=!s.latched; s.engine.setLatch(s.latched); oled(`s${i} ${s.latched?'FREEZE':'live'}`); syncStrip(i); }
 function setPage(p){ page=p; document.querySelectorAll('#pages button').forEach(b=>b.classList.toggle('on',+b.dataset.p===p)); document.getElementById('pageLabel').textContent='PAGE: '+PAGE_LABELS[p]; for(let i=0;i<N;i++) syncStrip(i); oled('PAGE '+['GEOMETRY','MODULATION','SPACE'][p]); }
-function trackOp(dir){ // Track◀▶ = operator of last-touched route (PAGE2)
+function trackOp(dir){ // Track◀ = operator of last-touched route (PAGE2)
   const rt=matrix.routes[lastTouched]; const oi=(OPERATORS.indexOf(rt.op)+dir+OPERATORS.length)%OPERATORS.length; rt.op=OPERATORS[oi]; oled(`s${lastTouched} MOD op ${rt.op}`); syncStrip(lastTouched);
+}
+const CROSS = ['none', ...SRC];               // cross-product partner (§2.3 a·b)
+function trackCross(dir){ // Track▶ = cross source of last-touched route
+  const rt=matrix.routes[lastTouched]; let ci=CROSS.indexOf(rt.cross); if(ci<0)ci=0; ci=((ci+dir)%CROSS.length+CROSS.length)%CROSS.length; rt.cross=CROSS[ci]; oled(`s${lastTouched} MOD cross ×${rt.cross}`); syncStrip(lastTouched);
 }
 function transport(kind){
   if(kind==='play'){ globalRunning=true; if(ctx.state!=='running') ctx.resume(); }
@@ -274,8 +282,8 @@ midi.on('note',(note,vel,on)=>{
   else if((idx=NOTE.BTN_BOT.indexOf(note))>=0) btnBot(idx);
   else if(note===NOTE.PAGE_UP) setPage((page+1)%3);
   else if(note===NOTE.PAGE_DN) setPage((page+2)%3);
-  else if(note===NOTE.TRACK_L) trackOp(-1);
-  else if(note===NOTE.TRACK_R) trackOp(+1);
+  else if(note===NOTE.TRACK_L) trackOp(+1);    // Track◀ cycles MOD operator
+  else if(note===NOTE.TRACK_R) trackCross(+1); // Track▶ cycles MOD cross source
   else if(note===NOTE.PLAY) transport('play');
   else if(note===NOTE.STOP) transport('stop');
   else if(note===NOTE.CAPTURE) transport('capture');
@@ -324,12 +332,14 @@ document.querySelectorAll('#pages button').forEach(b=>b.onclick=()=>setPage(+b.d
 document.getElementById('tPlay').onclick=()=>transport('play');
 document.getElementById('tStop').onclick=()=>transport('stop');
 document.getElementById('tCap').onclick=()=>transport('capture');
+document.getElementById('opBtn').onclick=()=>trackOp(+1);
+document.getElementById('xBtn').onclick=()=>trackCross(+1);
 
 const ENC_LABELS=[['fBase','shape1','shape2'],['src','depth','dest'],['X','Y','sprd']];
 function encDisplay(i,row){
   const s=slots[i];
   if(page===0){ const b=s.base; const v=[b.fBase.toFixed(0),b.shape1.toFixed(2),b.shape2.toFixed(2)][row]; const frac=[clamp((Math.log(b.fBase/30)/Math.log(100)),0,1),b.shape1,b.shape2][row]; return {v,frac}; }
-  if(page===1){ const rt=matrix.routes[i]; if(row===0) return {v:rt.src,frac:SRC.indexOf(rt.src)/SRC.length}; if(row===1) return {v:rt.depth.toFixed(2),frac:(rt.depth+1.5)/3}; return {v:rt.destParam+'·'+rt.op.slice(0,3),frac:DEST_PARAMS.indexOf(rt.destParam)/DEST_PARAMS.length}; }
+  if(page===1){ const rt=matrix.routes[i]; if(row===0) return {v:rt.src+(rt.cross!=='none'?'×'+rt.cross.slice(0,4):''),frac:SRC.indexOf(rt.src)/SRC.length}; if(row===1) return {v:rt.depth.toFixed(2),frac:(rt.depth+1.5)/3}; return {v:rt.destParam+'·'+rt.op.slice(0,3),frac:DEST_PARAMS.indexOf(rt.destParam)/DEST_PARAMS.length}; }
   const b=s.base; if(row===0) return {v:b.spaceX.toFixed(2),frac:(b.spaceX+1)/2}; if(row===1) return {v:b.spaceY.toFixed(2),frac:(b.spaceY+1)/2}; return {v:b.spaceSpread.toFixed(2),frac:b.spaceSpread};
 }
 function syncStrip(i){
@@ -352,18 +362,40 @@ setPage(0);
 // ============================ background visualization ============================
 const bg=document.getElementById('bg'); const g=bg.getContext('2d');
 function rs(){ bg.width=innerWidth*devicePixelRatio; bg.height=innerHeight*devicePixelRatio; } addEventListener('resize',rs); rs();
+// Each active slot is drawn faintly at its HRTF position with a form that
+// mirrors its geometry: membrane/spatial=mode rings, plate=nodal star,
+// kuramoto=phase ring+order arc, lorenz/phyllotaxis=motion trail (§UI 場/軌道/節線).
+const HUES=[150,60,20,180,110,200,140,40];
 function draw(){
-  const W=bg.width,H=bg.height; g.fillStyle='rgba(4,8,10,0.22)'; g.fillRect(0,0,W,H);
+  const W=bg.width,H=bg.height; g.fillStyle='rgba(4,8,10,0.26)'; g.fillRect(0,0,W,H);
   const cx=W/2, cy=H*0.52, R=Math.min(W,H)*0.34;
-  // listener
   g.strokeStyle='#12312a'; g.lineWidth=1; g.beginPath(); g.arc(cx,cy,R,0,7); g.stroke();
-  g.strokeStyle='#1d3a34'; g.beginPath(); g.arc(cx,cy,8,0,7); g.stroke();
-  for(let i=0;i<N;i++){ const s=slots[i]; if(!s.on) continue;
-    const px=cx+(s.px||0)*R, py=cy+(s.py||0)*R; const e=clamp(s.env,0,1);
-    const hue=[150,60,20,180,110,200,140,40][i];
-    g.fillStyle=`hsla(${hue},80%,60%,${0.15+e*0.6})`;
-    g.beginPath(); g.arc(px,py, 4+e*22*(s.level*0.6+0.4), 0,7); g.fill();
-    g.fillStyle=`hsla(${hue},90%,70%,${0.5})`; g.beginPath(); g.arc(px,py,3,0,7); g.fill();
+  // listener at centre
+  g.strokeStyle='#1d3a34'; g.beginPath(); g.arc(cx,cy,9,0,7); g.stroke(); g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx,cy-14); g.stroke();
+  const dp=devicePixelRatio;
+  for(let i=0;i<N;i++){ const s=slots[i]; if(!s.on){ if(s.trail) s.trail.length=0; continue; }
+    const px=cx+(s.px||0)*R, py=cy+(s.py||0)*R; const e=clamp(s.env,0,1), hue=HUES[i];
+    const base=6*dp+e*20*dp*(s.level*0.6+0.4);
+    s.trail=s.trail||[];
+    const moving=['lorenz','kuramoto','phyllotaxis'].includes(s.type);
+    if(moving){ s.trail.push([px,py]); if(s.trail.length>46) s.trail.shift();
+      g.strokeStyle=`hsla(${hue},80%,60%,0.26)`; g.lineWidth=1.2*dp; g.beginPath();
+      for(let k=0;k<s.trail.length;k++){ const p=s.trail[k]; k?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]); } g.stroke();
+    } else s.trail.length=0;
+    g.save(); g.translate(px,py);
+    if(s.type==='membrane'||s.type==='spatial'){
+      for(let rr=1;rr<=3;rr++){ g.strokeStyle=`hsla(${hue},80%,62%,${(0.10+e*0.42)/rr})`; g.lineWidth=1.3*dp; g.beginPath(); g.arc(0,0,base*rr*0.62,0,7); g.stroke(); }
+    } else if(s.type==='plate'){
+      g.strokeStyle=`hsla(${hue},85%,60%,${0.14+e*0.5})`; g.lineWidth=1.2*dp;
+      const nodes=2+Math.round(s.base.shape1*3);
+      for(let a=0;a<nodes;a++){ const an=a*Math.PI/nodes; g.beginPath(); g.moveTo(-Math.cos(an)*base,-Math.sin(an)*base); g.lineTo(Math.cos(an)*base,Math.sin(an)*base); g.stroke(); }
+    } else if(s.type==='kuramoto'){
+      g.strokeStyle=`hsla(${hue},80%,60%,0.28)`; g.lineWidth=1.2*dp; g.beginPath(); g.arc(0,0,base,0,7); g.stroke();
+      g.strokeStyle=`hsla(${hue},90%,70%,${0.3+e*0.6})`; g.lineWidth=2.4*dp; g.beginPath(); g.arc(0,0,base,-Math.PI/2,-Math.PI/2+e*6.283); g.stroke();
+    }
+    g.fillStyle=`hsla(${hue},90%,72%,${0.42+e*0.5})`; g.beginPath(); g.arc(0,0,3*dp,0,7); g.fill();
+    g.restore();
+    g.fillStyle=`hsla(${hue},55%,62%,0.5)`; g.font=`${Math.round(9*dp)}px ui-monospace,monospace`; g.fillText('s'+(i+1)+' '+s.type.slice(0,4), px+base+4*dp, py+3*dp);
   }
   requestAnimationFrame(draw);
 }
