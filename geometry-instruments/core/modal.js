@@ -33,33 +33,38 @@ export function membraneExcitation(modes, r, theta) {
 }
 
 // ---- Thin circular plate / Chladni (A1, A8): f ∝ λ² ---------------------------
-// Pre-tabulated λ_mn for three edge conditions (m=0..5, n=1..4). Frequencies
-// go as (λ_mn / λ_01)². These are the standard clamped / simply-supported /
-// free plate eigenvalue roots (rounded); good enough for a playable timbre.
+// λ_mn for three edge conditions (rows m=0..5, cols n=1..4). Frequencies go as
+// (λ_mn / λ_01)². These are the Kirchhoff circular-plate eigenvalue roots,
+// computed from the characteristic equations and cross-checked against scipy
+// (Poisson ν=0.30; free/ss also match Leissa's published values):
+//   clamped : J_m'(λ)I_m(λ) − J_m(λ)I_m'(λ) = 0
+//   ss      : 2λ J_m(λ)I_m(λ) + (ν−1)[J_m(λ)I_m'(λ) − I_m(λ)J_m'(λ)] = 0
+//   free    : det of [M_r=0, Kirchhoff V_r=0] on A·J_m(λr)+B·I_m(λr)
+// (free rows exclude the λ=0 rigid-body modes; m=2 carries the global fundamental.)
 export const PLATE_LAMBDA = {
   clamped: [
-    [3.196, 6.306, 9.440, 12.577],
-    [4.611, 7.799, 10.958, 14.108],
-    [5.906, 9.197, 12.402, 15.580],
-    [7.144, 10.537, 13.795, 17.005],
-    [8.347, 11.837, 15.148, 18.396],
-    [9.526, 13.107, 16.471, 19.758],
+    [3.1962, 6.3064, 9.4395, 12.5771],
+    [4.6109, 7.7993, 10.9581, 14.1086],
+    [5.9057, 9.1969, 12.4022, 15.5795],
+    [7.1435, 10.5367, 13.7951, 17.0053],
+    [8.3466, 11.8367, 15.1499, 18.3960],
+    [9.5257, 13.1074, 16.4751, 19.7583],
   ],
   ss: [ // simply supported
-    [2.222, 5.452, 8.611, 11.761],
-    [3.728, 6.960, 10.137, 13.297],
-    [5.061, 8.373, 11.590, 14.769],
-    [6.309, 9.720, 12.982, 16.191],
-    [7.501, 11.016, 14.331, 17.571],
-    [8.653, 12.276, 15.649, 18.919],
+    [2.2215, 5.4516, 8.6114, 11.7609],
+    [3.7280, 6.9627, 10.1377, 13.2967],
+    [5.0610, 8.3736, 11.5887, 14.7717],
+    [6.3212, 9.7236, 12.9875, 16.2014],
+    [7.5393, 11.0319, 14.3475, 17.5957],
+    [8.7294, 12.3093, 15.6773, 18.9613],
   ],
   free: [
-    [2.315, 5.940, 9.286, 12.548],
-    [1.640, 4.157, 7.501, 10.780],
-    [2.793, 5.882, 9.180, 12.500],
-    [4.089, 7.409, 10.769, 14.100],
-    [5.319, 8.860, 12.290, 15.660],
-    [6.500, 10.240, 13.740, 17.150],
+    [3.0005, 6.2003, 9.3675, 12.5227],
+    [4.5249, 7.7338, 10.9068, 14.0667],
+    [2.3148, 5.9380, 9.1851, 12.3817],
+    [3.5269, 7.2806, 10.5804, 13.8091],
+    [4.6728, 8.5757, 11.9344, 15.1997],
+    [5.7875, 9.8364, 13.2565, 16.5606],
   ],
 };
 
