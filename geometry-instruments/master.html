@@ -44,6 +44,12 @@
   .caps{display:flex;gap:4px;flex-wrap:wrap}
   .caps button{background:#0a1418;color:#7fe8ff;border:1px solid #1d3a34;border-radius:3px;padding:2px 7px;cursor:pointer;font:inherit}
   a{color:#7fe8ff}
+  .scorelane{position:relative;z-index:1;height:112px;margin:0 12px 3px;background:#060d10cc;border:1px solid #10241f;border-radius:5px;display:flex;flex-direction:column;overflow:hidden}
+  .scorehead{display:flex;align-items:center;gap:8px;padding:4px 8px;color:#7fae90;font-size:10px}
+  .scorehead .glabel{color:#d0ff5a;letter-spacing:.16em;font-weight:700}
+  .scorehead button{background:#0a1418;color:#9fe8c0;border:1px solid #1d3a34;border-radius:3px;padding:2px 8px;cursor:pointer;font:inherit}
+  .scorehead button.on{border-color:#d0ff5a;color:#d0ff5a}
+  #score{flex:1;width:100%;display:block;cursor:crosshair}
 </style>
 </head>
 <body>
@@ -73,6 +79,17 @@
   </div>
 
   <div class="strips" id="strips"></div>
+
+  <div class="scorelane">
+    <div class="scorehead">
+      <span class="glabel">GRAPHIC SCORE</span>
+      <button id="scPlay" title="play the score — captures morph over time">▶ score</button>
+      <button id="scStop" title="stop">■</button>
+      <button id="scLoop" class="on" title="loop the score">⟳ loop</button>
+      <span id="scInfo">Transport ● (CAPTURE) adds a frame · wheel/drag a column = its seconds · frames morph continuously (no tempo)</span>
+    </div>
+    <canvas id="score"></canvas>
+  </div>
 
   <div class="foot">
     <span id="pageLabel">PAGE: GEOMETRY — enc: fBase / shape1 / shape2</span>
@@ -154,9 +171,22 @@ function control(){
   const stepDt = globalRunning ? dt : 0;      // global freeze halts all time
   const mods = matrix.compute(slots, stepDt, globalRunning);
 
+  // GRAPHIC SCORE playback: sweep a playhead through the capture timeline,
+  // morphing between frames (background-safe: setInterval loop). Takes over the mix.
+  if(scorePlaying && captures.length && globalRunning){
+    scoreTime += stepDt;
+    const tot=scoreTotal(); let acc=0, seg=0;
+    for(; seg<captures.length; seg++){ const d=captures[seg].dur||8; if(scoreTime < acc+d) break; acc+=d; }
+    if(seg>=captures.length){ if(scoreLoop){ scoreTime=0; scoreSeg=-1; seg=0; acc=0; } else { scoreStop(); seg=captures.length-1; acc=tot-(captures[seg].dur||8); } }
+    const a=captures[seg], b=captures[Math.min(seg+1,captures.length-1)];
+    const f=clamp((scoreTime-acc)/(a.dur||8),0,1);
+    if(seg!==scoreSeg){ applyDiscrete(a); scoreSeg=seg; }
+    applyContinuous(a,b,f);
+    perfSync+=stepDt; if(perfSync>0.15){ perfSync=0; for(let i=0;i<N;i++) syncStrip(i); }
+  }
   // AUTO PERFORM: the whole mix evolves on natural functions (background-safe,
   // this loop is setInterval not rAF). Each slot gets a phase-shifted drift.
-  if(autoPerform && globalRunning){
+  else if(autoPerform && globalRunning){
     perfT += stepDt; const v = matrix.lfos.values;
     for(let i=0;i<N;i++){ const s=slots[i], ph=i*0.8;
       s.on = true;
@@ -287,8 +317,31 @@ function applySnapshot(snap){
   if(typeof snap.masterVol==='number'){ masterGain.gain.value=snap.masterVol; const mv=document.getElementById('mvol'); if(mv) mv.value=snap.masterVol; }
   if(typeof snap.autoPerform==='boolean'){ autoPerform=snap.autoPerform; document.getElementById('autoperf').classList.toggle('on',autoPerform); }
 }
-function doCapture(){ captures.push(makeSnapshot()); renderCaps(); oled('CAPTURE #'+captures.length); }
+function doCapture(){ const sn=makeSnapshot(); sn.dur=8; captures.push(sn); renderCaps(); oled('CAPTURE #'+captures.length+' → score'); }
 function recall(k){ if(captures[k]){ applySnapshot(captures[k]); oled('RECALL #'+(k+1)+' (move faders to catch)'); } }
+
+// ---- GRAPHIC SCORE: the CAPTURE list laid on a time axis; frames morph over
+// time (durations in seconds — this is time, not tempo). Continuous params are
+// interpolated between consecutive frames; discrete state steps at each frame. ----
+let scorePlaying=false, scoreLoop=true, scoreTime=0, scoreSeg=-1, scoreSel=-1;
+const lerp=(a,b,f)=>a+(b-a)*f;
+function scoreTotal(){ return captures.reduce((s,c)=>s+(c.dur||8),0)||1; }
+function applyDiscrete(snap){
+  for(let i=0;i<N;i++){ if(slots[i].type!==snap.types[i]) reloadEngine(i,snap.types[i]); slots[i].on=snap.on[i]; slots[i].latched=snap.latched[i]; slots[i].engine.setLatch(slots[i].latched); }
+  (snap.routes||[]).forEach((r,idx)=>{ const rt=matrix.routes[idx]; if(rt){ rt.src=r.src; rt.op=r.op; rt.cross=r.cross; rt.destSlot=r.destSlot; rt.destParam=r.destParam; } });
+}
+function applyContinuous(a,b,f){
+  for(let i=0;i<N;i++){ const ba=a.base[i], bb=b.base[i], s=slots[i];
+    s.base.fBase=lerp(ba.fBase,bb.fBase,f); s.base.shape1=lerp(ba.shape1,bb.shape1,f); s.base.shape2=lerp(ba.shape2,bb.shape2,f);
+    s.base.spaceX=lerp(ba.spaceX,bb.spaceX,f); s.base.spaceY=lerp(ba.spaceY,bb.spaceY,f);
+    s.base.spaceSpread=lerp(ba.spaceSpread||0,bb.spaceSpread||0,f); s.base.pan=lerp(ba.pan||0,bb.pan||0,f);
+    s.level=lerp(a.level[i],b.level[i],f);
+  }
+  (a.routes||[]).forEach((r,idx)=>{ const rt=matrix.routes[idx]; if(rt && b.routes&&b.routes[idx]) rt.depth=lerp(r.depth,b.routes[idx].depth,f); });
+  if(typeof a.masterVol==='number' && typeof b.masterVol==='number'){ masterGain.gain.setTargetAtTime(lerp(a.masterVol,b.masterVol,f),ctx.currentTime,0.05); }
+}
+function scorePlay(){ if(!captures.length){ oled('no CAPTUREs — press ● first'); return; } scorePlaying=true; scoreSeg=-1; if(ctx.state!=='running')ctx.resume(); if(!globalRunning)transport('play'); autoPerform=false; document.getElementById('autoperf').classList.remove('on'); document.getElementById('scPlay').classList.add('on'); oled('SCORE playing'); }
+function scoreStop(){ scorePlaying=false; document.getElementById('scPlay').classList.remove('on'); oled('SCORE stopped'); }
 
 // whole-settings persistence: browser localStorage + portable .json file
 const LS_KEY='elsystema.master.v1';
@@ -433,12 +486,43 @@ function draw(){
     g.restore();
     g.fillStyle=`hsla(${hue},55%,62%,0.5)`; g.font=`${Math.round(9*dp)}px ui-monospace,monospace`; g.fillText('s'+(i+1)+' '+s.type.slice(0,4), px+base+4*dp, py+3*dp);
   }
+  drawScore();
   requestAnimationFrame(draw);
 }
+
+// ---- graphic score lane rendering ----
+const scoreCv=document.getElementById('score'), sx=scoreCv.getContext('2d');
+function rsScore(){ if(scoreCv.clientWidth){ scoreCv.width=scoreCv.clientWidth*devicePixelRatio; scoreCv.height=scoreCv.clientHeight*devicePixelRatio; } }
+addEventListener('resize',rsScore);
+function drawScore(){
+  const dp=devicePixelRatio;
+  if(!scoreCv.width || scoreCv.width!==scoreCv.clientWidth*dp) rsScore();
+  const W=scoreCv.width,H=scoreCv.height; sx.clearRect(0,0,W,H); sx.fillStyle='#060d10'; sx.fillRect(0,0,W,H);
+  if(!captures.length){ sx.fillStyle='#3f6a52'; sx.font=`${Math.round(11*dp)}px ui-monospace,monospace`; sx.fillText('press ● (CAPTURE / Transport ●) to add score frames — they will morph over time', 10*dp, H/2); return; }
+  const tot=scoreTotal(); let accX=0;
+  for(let k=0;k<captures.length;k++){ const c=captures[k]; const w=((c.dur||8)/tot)*W;
+    sx.fillStyle = k===scoreSel?'#0c1c22':'#0a1418'; sx.fillRect(accX+1,0,w-2,H);
+    sx.strokeStyle='#12312a'; sx.lineWidth=1; sx.strokeRect(accX+0.5,0.5,w-1,H-1);
+    const bw=(w-4)/N;
+    for(let i=0;i<N;i++){ const lv=(c.on&&c.on[i])?c.level[i]:0; const bh=lv*(H-24*dp);
+      sx.fillStyle=`hsl(${HUES[i]},70%,55%)`; sx.fillRect(accX+2+i*bw, H-7*dp-bh, Math.max(1,bw-1), bh); }
+    sx.fillStyle='#7fae90'; sx.font=`${Math.round(9*dp)}px ui-monospace,monospace`; sx.fillText('#'+(k+1), accX+3*dp, 11*dp);
+    sx.fillStyle='#4f7f66'; sx.fillText((c.dur||8).toFixed(0)+'s', accX+3*dp, H-2*dp);
+    accX+=w;
+  }
+  if(scorePlaying||scoreTime>0.01){ const px=(scoreTime/tot)*W; sx.strokeStyle='#d0ff5a'; sx.lineWidth=1.6*dp; sx.beginPath(); sx.moveTo(px,0); sx.lineTo(px,H); sx.stroke(); }
+}
+function scoreColAt(clientX){ const r=scoreCv.getBoundingClientRect(); const fx=clamp((clientX-r.left)/r.width,0,0.9999); const tot=scoreTotal(); let acc=0; for(let k=0;k<captures.length;k++){ const d=(captures[k].dur||8)/tot; if(fx<acc+d) return k; acc+=d; } return captures.length-1; }
+scoreCv.addEventListener('click',e=>{ if(!captures.length)return; const k=scoreColAt(e.clientX); scoreSel=k; let acc=0; for(let j=0;j<k;j++)acc+=captures[j].dur||8; scoreTime=acc; scoreSeg=-1; oled('frame #'+(k+1)+' — '+(captures[k].dur||8)+'s (click ▶ score to play)'); });
+scoreCv.addEventListener('wheel',e=>{ if(!captures.length)return; e.preventDefault(); const k=scoreColAt(e.clientX); const c=captures[k]; c.dur=clamp((c.dur||8)+(e.deltaY<0?1:-1),1,120); scoreSel=k; oled('frame #'+(k+1)+' = '+c.dur+'s'); },{passive:false});
+document.getElementById('scPlay').onclick=scorePlay;
+document.getElementById('scStop').onclick=scoreStop;
+document.getElementById('scLoop').onclick=()=>{ scoreLoop=!scoreLoop; document.getElementById('scLoop').classList.toggle('on',scoreLoop); };
+rsScore();
 draw();
 
 // expose for headless tests
-window.__master = { slots, matrix, setPage, encTop, encMid, encBot, faderMove, btnTop, btnBot, transport, trackOp, trackCross, decodeRelative, makeSnapshot, applySnapshot, saveAll, loadAll, get running(){return globalRunning;}, get autoPerform(){return autoPerform;} };
+window.__master = { slots, matrix, captures, setPage, encTop, encMid, encBot, faderMove, btnTop, btnBot, transport, trackOp, trackCross, decodeRelative, makeSnapshot, applySnapshot, saveAll, loadAll, doCapture, scorePlay, scoreStop, get running(){return globalRunning;}, get autoPerform(){return autoPerform;}, get scoreTime(){return scoreTime;}, get scorePlaying(){return scorePlaying;} };
 </script>
 </body>
 </html>
