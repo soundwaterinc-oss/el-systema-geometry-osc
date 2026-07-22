@@ -50,6 +50,21 @@
   .scorehead button{background:#0a1418;color:#9fe8c0;border:1px solid #1d3a34;border-radius:3px;padding:2px 8px;cursor:pointer;font:inherit}
   .scorehead button.on{border-color:#d0ff5a;color:#d0ff5a}
   #score{flex:1;width:100%;display:block;cursor:crosshair}
+  .fieldbar{position:relative;z-index:1;display:flex;align-items:stretch;gap:7px;margin:0 12px 4px;padding:6px 8px;background:#060d10cc;border:1px solid #123a30;border-radius:5px}
+  .fieldbar .ftitle{display:flex;flex-direction:column;justify-content:center;color:#7fe8ff;letter-spacing:.14em;font-weight:700;min-width:62px}
+  .fieldbar .ftitle small{color:#4f7f66;font-weight:400;letter-spacing:.04em;font-size:8px}
+  .fcells{display:flex;gap:5px;flex:1;flex-wrap:wrap;align-content:flex-start}
+  .fcell{position:relative;width:76px;min-height:38px;background:#0a1418;border:1px solid #16302b;border-radius:3px;padding:3px 5px;cursor:ns-resize;overflow:hidden}
+  .fcell>span{position:relative;z-index:2;display:block}
+  .fcell .fn{color:#6fa588;font-size:9px;letter-spacing:.02em}
+  .fcell .fv{color:#9fe8c0;font-size:11px}
+  .fcell .fb{position:absolute;left:0;bottom:0;top:0;background:#0e2a24;border-right:2px solid #7fe8ff;z-index:1}
+  .fcell.mot{border-color:#26473f}
+  .fcell.mot .fn{color:#8fbfa0}
+  .fcell.mot .fb{background:#132a1a;border-right-color:#d0ff5a}
+  .fcell select{position:relative;z-index:2;width:100%;background:#08120f;color:#7fe8ff;border:1px solid #16302b;border-radius:2px;font:inherit;font-size:9px;margin-top:2px;cursor:pointer}
+  .fcell .fbtn{position:relative;z-index:2;background:#0a1418;color:#7fe8ff;border:1px solid #1d3a34;border-radius:2px;font:inherit;font-size:10px;cursor:pointer;padding:2px;width:100%;margin-top:2px}
+  #scope{width:88px;height:auto;align-self:stretch;background:#04080a;border:1px solid #123a30;border-radius:3px;display:block}
 </style>
 </head>
 <body>
@@ -80,6 +95,12 @@
 
   <div class="strips" id="strips"></div>
 
+  <div class="fieldbar" id="fieldbar">
+    <div class="ftitle">FIELD ⟂<small>whole-field transform · drag/wheel to play · ↝ = natural-function motion</small></div>
+    <div class="fcells" id="fcells"></div>
+    <canvas id="scope" title="stereo vector — the whole field seen as a 2-vector (L × R)"></canvas>
+  </div>
+
   <div class="scorelane">
     <div class="scorehead">
       <span class="glabel">GRAPHIC SCORE</span>
@@ -108,6 +129,7 @@
 <script type="module">
 import { createEngine, ENGINE_TYPES } from './core/engines.js';
 import { ModMatrix, SOURCE_NAMES, OPERATORS, DEST_PARAMS } from './core/modmatrix.js';
+import { FieldTransform, FOLD_TYPES, FIELD_MOTION_TARGETS, FIELD_LFOS } from './core/fieldtransform.js';
 import { MidiHub, armAudio } from './core/midi.js';
 
 // ============================ audio graph ============================
@@ -116,6 +138,9 @@ const limiter = ctx.createDynamicsCompressor();
 limiter.threshold.value = -8; limiter.knee.value = 6; limiter.ratio.value = 12; limiter.attack.value = 0.003; limiter.release.value = 0.2;
 const masterGain = ctx.createGain(); masterGain.gain.value = 0.9;
 masterGain.connect(limiter).connect(ctx.destination);
+// FIELD layer — the whole slot mix is transformed one dimension up before master.
+const field = new FieldTransform(ctx);
+field.output.connect(masterGain);
 document.getElementById('mvol').oninput = (e) => masterGain.gain.setTargetAtTime(+e.target.value, ctx.currentTime, 0.02);
 if (ctx.listener.positionX) { ctx.listener.positionX.value = 0; ctx.listener.positionZ.value = 0; ctx.listener.forwardZ.value = -1; ctx.listener.upY.value = 1; }
 
@@ -130,7 +155,7 @@ function buildSlot(i,type){
   const levelGain = ctx.createGain(); levelGain.gain.value = 0;
   const stereoPan = ctx.createStereoPanner();       // LFO-modulatable L/R pan
   const panner = newPanner();
-  engine.output.connect(levelGain); levelGain.connect(stereoPan); stereoPan.connect(panner); panner.connect(masterGain);
+  engine.output.connect(levelGain); levelGain.connect(stereoPan); stereoPan.connect(panner); panner.connect(field.input);
   return { i, type, engine, levelGain, stereoPan, panner,
     on:true, latched:false, level:0,
     base:{ fBase:engine.fBase, shape1:0.4, shape2:0.5, spaceX:(i/(N-1))*2-1, spaceY:0, spaceSpread:0, pan:0 },
@@ -170,6 +195,7 @@ function control(){
   dt = clamp(dt, 0, 0.05);
   const stepDt = globalRunning ? dt : 0;      // global freeze halts all time
   const mods = matrix.compute(slots, stepDt, globalRunning);
+  field.process(stepDt, matrix.lfos.values);  // transform the whole field (natural-function driven)
 
   // GRAPHIC SCORE playback: sweep a playhead through the capture timeline,
   // morphing between frames (background-safe: setInterval loop). Takes over the mix.
@@ -302,6 +328,7 @@ function makeSnapshot(){
     types:slots.map(s=>s.type), base:slots.map(s=>({...s.base})), level:slots.map(s=>s.level),
     on:slots.map(s=>s.on), latched:slots.map(s=>s.latched),
     routes:matrix.routes.map(r=>({src:r.src,op:r.op,cross:r.cross,depth:r.depth,destSlot:r.destSlot,destParam:r.destParam})),
+    field:field.snapshot(),
     page, masterVol:masterGain.gain.value, autoPerform };
 }
 function applySnapshot(snap){
@@ -313,6 +340,7 @@ function applySnapshot(snap){
     slots[i].engine.setLatch(slots[i].latched); slots[i].faderCaught=false; syncStrip(i);
   }
   (snap.routes||[]).forEach((r,idx)=>{ if(matrix.routes[idx]) Object.assign(matrix.routes[idx],r); });
+  if(snap.field){ field.applySnapshot(snap.field); syncField(); }
   if(typeof snap.page==='number') setPage(snap.page);
   if(typeof snap.masterVol==='number'){ masterGain.gain.value=snap.masterVol; const mv=document.getElementById('mvol'); if(mv) mv.value=snap.masterVol; }
   if(typeof snap.autoPerform==='boolean'){ autoPerform=snap.autoPerform; document.getElementById('autoperf').classList.toggle('on',autoPerform); }
@@ -329,6 +357,7 @@ function scoreTotal(){ return captures.reduce((s,c)=>s+(c.dur||8),0)||1; }
 function applyDiscrete(snap){
   for(let i=0;i<N;i++){ if(slots[i].type!==snap.types[i]) reloadEngine(i,snap.types[i]); slots[i].on=snap.on[i]; slots[i].latched=snap.latched[i]; slots[i].engine.setLatch(slots[i].latched); }
   (snap.routes||[]).forEach((r,idx)=>{ const rt=matrix.routes[idx]; if(rt){ rt.src=r.src; rt.op=r.op; rt.cross=r.cross; rt.destSlot=r.destSlot; rt.destParam=r.destParam; } });
+  if(snap.field){ field.setFoldType(snap.field.foldType); FIELD_MOTION_TARGETS.forEach(k=>{ const m=snap.field.motion&&snap.field.motion[k]; if(m) field.setMotion(k,m.src,undefined); }); syncField(); }
 }
 function applyContinuous(a,b,f){
   for(let i=0;i<N;i++){ const ba=a.base[i], bb=b.base[i], s=slots[i];
@@ -338,6 +367,8 @@ function applyContinuous(a,b,f){
     s.level=lerp(a.level[i],b.level[i],f);
   }
   (a.routes||[]).forEach((r,idx)=>{ const rt=matrix.routes[idx]; if(rt && b.routes&&b.routes[idx]) rt.depth=lerp(r.depth,b.routes[idx].depth,f); });
+  if(a.field&&b.field){ const fp=field.p; for(const k of ['mix','rot','order','fold','shift','shiftFreq']) fp[k]=lerp(a.field.p[k],b.field.p[k],f);
+    FIELD_MOTION_TARGETS.forEach(k=>{ const am=a.field.motion[k],bm=b.field.motion[k]; if(am&&bm) field.motion[k].depth=lerp(am.depth,bm.depth,f); }); }
   if(typeof a.masterVol==='number' && typeof b.masterVol==='number'){ masterGain.gain.setTargetAtTime(lerp(a.masterVol,b.masterVol,f),ctx.currentTime,0.05); }
 }
 function scorePlay(){ if(!captures.length){ oled('no CAPTUREs — press ● first'); return; } scorePlaying=true; scoreSeg=-1; if(ctx.state!=='running')ctx.resume(); if(!globalRunning)transport('play'); autoPerform=false; document.getElementById('autoperf').classList.remove('on'); document.getElementById('scPlay').classList.add('on'); oled('SCORE playing'); }
@@ -498,6 +529,8 @@ function draw(){
     g.fillStyle=`hsla(${hue},55%,62%,0.5)`; g.font=`${Math.round(9*dp)}px ui-monospace,monospace`; g.fillText('s'+(i+1)+' '+s.type.slice(0,4), px+base+4*dp, py+3*dp);
   }
   drawScore();
+  drawFieldScope();
+  updateFieldLive();
   requestAnimationFrame(draw);
 }
 
@@ -529,11 +562,78 @@ scoreCv.addEventListener('wheel',e=>{ if(!captures.length)return; e.preventDefau
 document.getElementById('scPlay').onclick=scorePlay;
 document.getElementById('scStop').onclick=scoreStop;
 document.getElementById('scLoop').onclick=()=>{ scoreLoop=!scoreLoop; document.getElementById('scLoop').classList.toggle('on',scoreLoop); };
+
+// ============================ FIELD layer UI ============================
+// Each cell is played by drag (vertical) or wheel. The 6 base operators transform
+// the whole slot mix; the 4 ↝ MOTION cells assign a natural LFO to drive an
+// operator (a new performance dimension — the field plays itself).
+const F_PARAMS=[
+  {k:'mix',      name:'MIX',   min:0, max:1, step:0.02, fmt:v=>(v*100|0)+'%'},
+  {k:'rot',      name:'ROT ⟳', min:-1,max:1, step:0.02, fmt:v=>(v*180).toFixed(0)+'°'},
+  {k:'order',    name:'∂ ORDER',min:-1,max:2,step:0.02, fmt:v=> v.toFixed(2)+(v>0.4?' ∂':v<-0.4?' ∫':' ~')},
+  {k:'fold',     name:'FOLD',  min:0, max:1, step:0.02, fmt:v=>v.toFixed(2)},
+  {k:'shift',    name:'SHIFT', min:0, max:1, step:0.02, fmt:v=>v.toFixed(2)},
+  {k:'shiftFreq',name:'SH ·f', min:0, max:1, step:0.02, fmt:v=>Math.round(18*Math.pow(1.618,v*7))+'Hz'},
+];
+const fcellsEl=document.getElementById('fcells');
+const fParamCells=[], fMotCells={};
+F_PARAMS.forEach(sp=>{
+  const el=document.createElement('div'); el.className='fcell';
+  el.innerHTML=`<span class="fn">${sp.name}</span><span class="fv"></span><div class="fb"></div>`;
+  fcellsEl.appendChild(el);
+  const sens=(sp.max-sp.min)/150;
+  let dy=0,drag=false;
+  el.addEventListener('pointerdown',e=>{drag=true;dy=e.clientY;el.setPointerCapture(e.pointerId);});
+  el.addEventListener('pointermove',e=>{ if(!drag)return; const d=(dy-e.clientY); if(Math.abs(d)>=1){ field.setParam(sp.k,clamp(field.p[sp.k]+d*sens,sp.min,sp.max)); dy=e.clientY; oled('FIELD '+sp.name+' '+sp.fmt(field.p[sp.k])); } });
+  el.addEventListener('pointerup',()=>drag=false);
+  el.addEventListener('wheel',e=>{e.preventDefault(); field.setParam(sp.k,clamp(field.p[sp.k]+(e.deltaY<0?sp.step:-sp.step),sp.min,sp.max)); oled('FIELD '+sp.name+' '+sp.fmt(field.p[sp.k]));},{passive:false});
+  fParamCells.push({el,sp,fv:el.querySelector('.fv'),fb:el.querySelector('.fb')});
+});
+// FOLD function-type cell
+{ const el=document.createElement('div'); el.className='fcell'; el.style.cursor='default';
+  el.innerHTML=`<span class="fn">FOLD ·fn</span><button class="fbtn" id="foldTypeBtn"></button>`;
+  fcellsEl.appendChild(el);
+  el.querySelector('#foldTypeBtn').onclick=()=>{ const i=(FOLD_TYPES.indexOf(field.foldType)+1)%FOLD_TYPES.length; field.setFoldType(FOLD_TYPES[i]); syncField(); oled('FIELD fold fn = '+field.foldType); };
+}
+// MOTION cells — assign a natural function to drive each operator
+FIELD_MOTION_TARGETS.forEach(t=>{
+  const el=document.createElement('div'); el.className='fcell mot';
+  el.innerHTML=`<span class="fn">${t} ↝</span><span class="fv"></span><div class="fb"></div><select></select>`;
+  fcellsEl.appendChild(el);
+  const sel=el.querySelector('select'); FIELD_LFOS.forEach(n=>{const o=document.createElement('option');o.value=o.textContent=n;sel.appendChild(o);});
+  sel.onchange=()=>{ field.setMotion(t,sel.value,undefined); oled('FIELD '+t+' ↝ '+sel.value); };
+  let dy=0,drag=false;
+  el.addEventListener('pointerdown',e=>{ if(e.target===sel)return; drag=true;dy=e.clientY;el.setPointerCapture(e.pointerId);});
+  el.addEventListener('pointermove',e=>{ if(!drag)return; const d=(dy-e.clientY); field.setMotion(t,undefined,clamp(field.motion[t].depth+d/130,0,1)); dy=e.clientY; syncFieldMot(t); oled('FIELD '+t+' ↝ depth '+field.motion[t].depth.toFixed(2)); });
+  el.addEventListener('pointerup',()=>drag=false);
+  el.addEventListener('wheel',e=>{e.preventDefault(); field.setMotion(t,undefined,clamp(field.motion[t].depth+(e.deltaY<0?0.05:-0.05),0,1)); syncFieldMot(t);},{passive:false});
+  fMotCells[t]={el,sel,fv:el.querySelector('.fv'),fb:el.querySelector('.fb')};
+});
+function syncFieldMot(t){ const c=fMotCells[t]; if(!c)return; const m=field.motion[t]; c.sel.value=m.src; c.fv.textContent='×'+m.depth.toFixed(2); c.fb.style.width=(m.depth*100)+'%'; }
+function syncField(){ const b=document.getElementById('foldTypeBtn'); if(b) b.textContent=field.foldType; FIELD_MOTION_TARGETS.forEach(syncFieldMot); }
+// live readouts follow the *effective* (post-motion) values so the field visibly breathes
+function updateFieldLive(){ for(const c of fParamCells){ const v=field.eff[c.sp.k]; c.fv.textContent=c.sp.fmt(v); c.fb.style.width=(clamp((v-c.sp.min)/(c.sp.max-c.sp.min),0,1)*100)+'%'; } }
+syncField();
+
+// ---- stereo vectorscope: the whole field drawn as a 2-vector (L × R) ----
+const scopeCv=document.getElementById('scope'), sc=scopeCv.getContext('2d');
+const scL=new Float32Array(field.anL.fftSize), scR=new Float32Array(field.anR.fftSize);
+function rsScope(){ const dp=devicePixelRatio; const w=scopeCv.clientWidth||88, h=scopeCv.clientHeight||44; if(scopeCv.width!==w*dp||scopeCv.height!==h*dp){ scopeCv.width=w*dp; scopeCv.height=h*dp; } }
+function drawFieldScope(){ rsScope(); const w=scopeCv.width,h=scopeCv.height;
+  sc.fillStyle='rgba(4,8,10,0.32)'; sc.fillRect(0,0,w,h);
+  sc.strokeStyle='#0e2a24'; sc.lineWidth=1; sc.beginPath(); sc.moveTo(w/2,0);sc.lineTo(w/2,h);sc.moveTo(0,h/2);sc.lineTo(w,h/2); sc.stroke();
+  field.anL.getFloatTimeDomainData(scL); field.anR.getFloatTimeDomainData(scR);
+  const rad=Math.min(w,h)*0.46, hue=150+field.eff.rot*120;
+  sc.strokeStyle=`hsla(${hue},90%,66%,0.72)`; sc.lineWidth=1*devicePixelRatio; sc.beginPath();
+  for(let k=0;k<scL.length;k+=2){ const x=w/2+scL[k]*rad, y=h/2-scR[k]*rad; k?sc.lineTo(x,y):sc.moveTo(x,y); }
+  sc.stroke();
+}
+
 rsScore();
 draw();
 
 // expose for headless tests
-window.__master = { slots, matrix, captures, setPage, encTop, encMid, encBot, faderMove, btnTop, btnBot, transport, trackOp, trackCross, decodeRelative, makeSnapshot, applySnapshot, saveAll, loadAll, doCapture, scorePlay, scoreStop, get running(){return globalRunning;}, get autoPerform(){return autoPerform;}, get scoreTime(){return scoreTime;}, get scorePlaying(){return scorePlaying;} };
+window.__master = { slots, matrix, field, captures, setPage, encTop, encMid, encBot, faderMove, btnTop, btnBot, transport, trackOp, trackCross, decodeRelative, makeSnapshot, applySnapshot, saveAll, loadAll, doCapture, scorePlay, scoreStop, get running(){return globalRunning;}, get autoPerform(){return autoPerform;}, get scoreTime(){return scoreTime;}, get scorePlaying(){return scorePlaying;} };
 </script>
 </body>
 </html>
