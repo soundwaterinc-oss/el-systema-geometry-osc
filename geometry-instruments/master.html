@@ -77,6 +77,13 @@
   <div class="foot">
     <span id="pageLabel">PAGE: GEOMETRY — enc: fBase / shape1 / shape2</span>
     <span>CAPTURES:</span><span class="caps" id="caps"></span>
+    <span class="caps">SETTINGS:
+      <button id="saveBtn" title="save all settings to this browser">SAVE</button>
+      <button id="loadBtn" title="load settings from this browser">LOAD</button>
+      <button id="expBtn" title="export settings as .json file">⬇json</button>
+      <button id="impBtn" title="import settings from .json file">⬆json</button>
+      <input id="impFile" type="file" accept="application/json,.json" style="display:none">
+    </span>
     <span style="margin-left:auto"><a href="./index.html">← instruments</a> · XL3 Custom Mode CC5–36 / Note40–62</span>
   </div>
 </div>
@@ -104,11 +111,12 @@ function setPannerPos(p,x,y){ const X=x*2.2,Y=y*1.1,Z=-0.85; if(p.positionX){p.p
 function buildSlot(i,type){
   const engine = createEngine(ctx,type);
   const levelGain = ctx.createGain(); levelGain.gain.value = 0;
+  const stereoPan = ctx.createStereoPanner();       // LFO-modulatable L/R pan
   const panner = newPanner();
-  engine.output.connect(levelGain); levelGain.connect(panner); panner.connect(masterGain);
-  return { i, type, engine, levelGain, panner,
+  engine.output.connect(levelGain); levelGain.connect(stereoPan); stereoPan.connect(panner); panner.connect(masterGain);
+  return { i, type, engine, levelGain, stereoPan, panner,
     on:true, latched:false, level:0,
-    base:{ fBase:engine.fBase, shape1:0.4, shape2:0.5, spaceX:(i/(N-1))*2-1, spaceY:0, spaceSpread:0 },
+    base:{ fBase:engine.fBase, shape1:0.4, shape2:0.5, spaceX:(i/(N-1))*2-1, spaceY:0, spaceSpread:0, pan:0 },
     env:0, x:0, y:0, orbAng:Math.random()*6.28,
     exTimer:Math.random()*0.5, faderCaught:true };
 }
@@ -165,10 +173,12 @@ function control(){
   for(const s of slots){
     const b = s.base;
     // effective params = manual base + summed modulation, scaled & clamped per dest
-    const mF = mods[s.i+':fBase']||0, m1 = mods[s.i+':shape1']||0, m2 = mods[s.i+':shape2']||0, mL = mods[s.i+':level']||0, mS = mods[s.i+':space']||0;
+    const mF = mods[s.i+':fBase']||0, m1 = mods[s.i+':shape1']||0, m2 = mods[s.i+':shape2']||0, mL = mods[s.i+':level']||0, mS = mods[s.i+':space']||0, mP = mods[s.i+':pan']||0;
     s.engine.setParam('fBase', clamp(b.fBase*(1+mF*1.2), 30, 3000));
     s.engine.setParam('shape1', clamp(b.shape1+m1, 0, 1));
     s.engine.setParam('shape2', clamp(b.shape2+m2, 0, 1));
+    // LFO-driven stereo pan (an LFO routed to 'pan' auto-pans the slot)
+    s.stereoPan.pan.setTargetAtTime(clamp((b.pan||0)+mP, -1, 1), ctx.currentTime, 0.02);
     // auto-excitation: geometry-timed strikes (no tempo) for decaying engines
     if(globalRunning && s.on && !s.latched && s.level>0.02 && ['membrane','plate','spatial'].includes(s.type)){
       s.exTimer -= dt;
@@ -255,17 +265,38 @@ function transport(kind){
   oled('TRANSPORT '+kind.toUpperCase());
 }
 
-// ---- capture / recall ----
-function doCapture(){
-  const snap = { types:slots.map(s=>s.type), base:slots.map(s=>({...s.base})), level:slots.map(s=>s.level), on:slots.map(s=>s.on), latched:slots.map(s=>s.latched), routes:matrix.routes.map(r=>({src:r.src,op:r.op,cross:r.cross,depth:r.depth,destSlot:r.destSlot,destParam:r.destParam})) };
-  captures.push(snap); renderCaps(); oled('CAPTURE #'+captures.length);
+// ---- snapshot / capture / recall / save / load ----
+const DEFAULT_BASE = { fBase:150, shape1:0.4, shape2:0.5, spaceX:0, spaceY:0, spaceSpread:0, pan:0 };
+function makeSnapshot(){
+  return { v:2,
+    types:slots.map(s=>s.type), base:slots.map(s=>({...s.base})), level:slots.map(s=>s.level),
+    on:slots.map(s=>s.on), latched:slots.map(s=>s.latched),
+    routes:matrix.routes.map(r=>({src:r.src,op:r.op,cross:r.cross,depth:r.depth,destSlot:r.destSlot,destParam:r.destParam})),
+    page, masterVol:masterGain.gain.value, autoPerform };
 }
-function recall(k){
-  const snap=captures[k]; if(!snap) return;
-  for(let i=0;i<N;i++){ if(slots[i].type!==snap.types[i]) reloadEngine(i,snap.types[i]); slots[i].base={...snap.base[i]}; slots[i].level=snap.level[i]; slots[i].on=snap.on[i]; slots[i].latched=snap.latched[i]; slots[i].engine.setLatch(slots[i].latched); slots[i].faderCaught=false; syncStrip(i); }
-  snap.routes.forEach((r,idx)=>{ if(matrix.routes[idx]) Object.assign(matrix.routes[idx],r); });
-  oled('RECALL #'+(k+1)+' (move faders to catch)');
+function applySnapshot(snap){
+  if(!snap||!snap.types) return;
+  for(let i=0;i<N;i++){
+    if(slots[i].type!==snap.types[i]) reloadEngine(i,snap.types[i]);
+    slots[i].base=Object.assign({...DEFAULT_BASE, fBase:slots[i].engine.fBase}, snap.base[i]);
+    slots[i].level=snap.level[i]; slots[i].on=snap.on[i]; slots[i].latched=snap.latched[i];
+    slots[i].engine.setLatch(slots[i].latched); slots[i].faderCaught=false; syncStrip(i);
+  }
+  (snap.routes||[]).forEach((r,idx)=>{ if(matrix.routes[idx]) Object.assign(matrix.routes[idx],r); });
+  if(typeof snap.page==='number') setPage(snap.page);
+  if(typeof snap.masterVol==='number'){ masterGain.gain.value=snap.masterVol; const mv=document.getElementById('mvol'); if(mv) mv.value=snap.masterVol; }
+  if(typeof snap.autoPerform==='boolean'){ autoPerform=snap.autoPerform; document.getElementById('autoperf').classList.toggle('on',autoPerform); }
 }
+function doCapture(){ captures.push(makeSnapshot()); renderCaps(); oled('CAPTURE #'+captures.length); }
+function recall(k){ if(captures[k]){ applySnapshot(captures[k]); oled('RECALL #'+(k+1)+' (move faders to catch)'); } }
+
+// whole-settings persistence: browser localStorage + portable .json file
+const LS_KEY='elsystema.master.v1';
+function saveAll(){ try{ localStorage.setItem(LS_KEY, JSON.stringify({snapshot:makeSnapshot(), captures})); oled('SAVED to this browser'); }catch(e){ oled('SAVE failed: '+e.message); } }
+function loadAll(){ try{ const j=localStorage.getItem(LS_KEY); if(!j){ oled('nothing saved yet'); return; } ingest(JSON.parse(j)); oled('LOADED from this browser'); }catch(e){ oled('LOAD failed: '+e.message); } }
+function ingest(d){ if(d.captures){ captures.length=0; d.captures.forEach(c=>captures.push(c)); renderCaps(); } applySnapshot(d.snapshot||d); }
+function exportFile(){ const blob=new Blob([JSON.stringify({snapshot:makeSnapshot(),captures},null,1)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='el-systema-master-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')+'.json'; a.click(); URL.revokeObjectURL(a.href); oled('exported .json'); }
+function importFile(file){ const rd=new FileReader(); rd.onload=()=>{ try{ ingest(JSON.parse(rd.result)); oled('imported '+file.name); }catch(e){ oled('import failed'); } }; rd.readAsText(file); }
 
 // ============================ MIDI wiring ============================
 const midi = new MidiHub();
@@ -334,6 +365,11 @@ document.getElementById('tStop').onclick=()=>transport('stop');
 document.getElementById('tCap').onclick=()=>transport('capture');
 document.getElementById('opBtn').onclick=()=>trackOp(+1);
 document.getElementById('xBtn').onclick=()=>trackCross(+1);
+document.getElementById('saveBtn').onclick=saveAll;
+document.getElementById('loadBtn').onclick=loadAll;
+document.getElementById('expBtn').onclick=exportFile;
+document.getElementById('impBtn').onclick=()=>document.getElementById('impFile').click();
+document.getElementById('impFile').onchange=e=>{ if(e.target.files[0]) importFile(e.target.files[0]); e.target.value=''; };
 
 const ENC_LABELS=[['fBase','shape1','shape2'],['src','depth','dest'],['X','Y','sprd']];
 function encDisplay(i,row){
@@ -402,7 +438,7 @@ function draw(){
 draw();
 
 // expose for headless tests
-window.__master = { slots, matrix, setPage, encTop, encMid, encBot, faderMove, btnTop, btnBot, transport, trackOp, decodeRelative, get running(){return globalRunning;} };
+window.__master = { slots, matrix, setPage, encTop, encMid, encBot, faderMove, btnTop, btnBot, transport, trackOp, trackCross, decodeRelative, makeSnapshot, applySnapshot, saveAll, loadAll, get running(){return globalRunning;}, get autoPerform(){return autoPerform;} };
 </script>
 </body>
 </html>

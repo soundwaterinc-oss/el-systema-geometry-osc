@@ -74,7 +74,7 @@ export const SOURCE_NAMES = (n) => {
   return arr.concat(['golden', 'lorenz', 'kuramoto_r', 'pink', 'gauss', 'bessel']);
 };
 export const OPERATORS = ['thru', 'differentiate', 'integrate', 'sample&hold', 'abs'];
-export const DEST_PARAMS = ['fBase', 'shape1', 'shape2', 'space', 'level'];
+export const DEST_PARAMS = ['fBase', 'shape1', 'shape2', 'space', 'pan', 'level'];
 
 // --------------------------------------------------------------- the matrix
 export class ModMatrix {
