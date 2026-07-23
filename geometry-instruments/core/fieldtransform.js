@@ -19,7 +19,7 @@ import { PHI, SILVER } from './tuning.js';
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 export const FOLD_TYPES = ['sin', 'tanh', 'bessel'];
 // operators that can be animated by a natural LFO, and the LFO menu itself
-export const FIELD_MOTION_TARGETS = ['rot', 'order', 'fold', 'shift'];
+export const FIELD_MOTION_TARGETS = ['rot', 'order', 'fold', 'shift', 'res'];
 export const FIELD_LFOS = ['off', 'golden', 'lorenz', 'kuramoto_r', 'pink', 'gauss', 'bessel'];
 
 export class FieldTransform {
@@ -74,9 +74,26 @@ export class FieldTransform {
     this.shaper.connect(this.shiftDry).connect(this.shiftOut);
     this.shaper.connect(this.ring).connect(this.shiftOut);
 
+    // ---- RES: a 1D waveguide / feedback comb — pour the whole field into a
+    // resonant cavity (standing waves of the wave equation in a tube). res = amount
+    // and ring-length, resTune = cavity pitch (golden-spaced). ----
+    this.resDry = G(); this.resDry.gain.value = 1;
+    this.resSum = G();
+    this.resDelay = ctx.createDelay(0.05);
+    this.resDamp = ctx.createBiquadFilter(); this.resDamp.type = 'lowpass'; this.resDamp.frequency.value = 3000;
+    this.resFB = G(); this.resFB.gain.value = 0;            // feedback (<1 for stability)
+    this.resWet = G(); this.resWet.gain.value = 0;
+    this.resOut = G();
+    this.shiftOut.connect(this.resDry).connect(this.resOut);
+    this.shiftOut.connect(this.resSum);
+    this.resSum.connect(this.resDelay).connect(this.resDamp);
+    this.resDamp.connect(this.resFB).connect(this.resSum); // the loop = the standing wave
+    this.resDamp.connect(this.resWet).connect(this.resOut);
+    this.resDelay.delayTime.value = 1 / 160;
+
     // ---- wet trim into output ----
     this.wet = G(); this.wet.gain.value = 0;               // mix (0 = layer bypassed)
-    this.shiftOut.connect(this.wet).connect(this.output);
+    this.resOut.connect(this.wet).connect(this.output);
 
     // ---- stereo vectorscope taps (view the field as a vector) ----
     this.scopeSplit = ctx.createChannelSplitter(2);
@@ -86,10 +103,11 @@ export class FieldTransform {
     this.scopeSplit.connect(this.anL, 0); this.scopeSplit.connect(this.anR, 1);
 
     // ---- parameters (all default to identity / bypass) ----
-    this.p = { mix: 0, rot: 0, order: 0, fold: 0, shift: 0, shiftFreq: 0.25 };
+    this.p = { mix: 0, rot: 0, order: 0, fold: 0, shift: 0, shiftFreq: 0.25, res: 0, resTune: 0.4 };
     this.foldType = 'sin';
     this.motion = { rot: { src: 'off', depth: 0 }, order: { src: 'off', depth: 0 },
-                    fold: { src: 'off', depth: 0 }, shift: { src: 'off', depth: 0 } };
+                    fold: { src: 'off', depth: 0 }, shift: { src: 'off', depth: 0 },
+                    res: { src: 'off', depth: 0 } };
     this.eff = { ...this.p };                               // last effective values (for UI/viz)
   }
 
@@ -160,6 +178,16 @@ export class FieldTransform {
     // 18 Hz … ~18·φ^7 ≈ 530 Hz, spaced by the golden ratio (inharmonic translation)
     const cf = 18 * Math.pow(PHI, e.shiftFreq * 7) * (1 + 0.0001 * SILVER);
     this.carrier.frequency.setTargetAtTime(cf, t, TC);
+
+    // RES: waveguide cavity — delay = 1/pitch, feedback = ring length (stable <1)
+    e.res = clamp(p.res + this._mot('res', lfos), 0, 1);
+    e.resTune = clamp(p.resTune, 0, 1);
+    const rf = 40 * Math.pow(PHI, e.resTune * 6);          // 40 … ~715 Hz, golden-spaced
+    this.resDelay.delayTime.setTargetAtTime(clamp(1 / rf, 0.0004, 0.05), t, 0.05);
+    this.resDamp.frequency.setTargetAtTime(clamp(rf * 6, 500, 9000), t, TC);
+    this.resWet.gain.setTargetAtTime(e.res, t, TC);
+    this.resDry.gain.setTargetAtTime(1 - e.res * 0.7, t, TC);   // keep some dry through
+    this.resFB.gain.setTargetAtTime(e.res * 0.88, t, TC);       // ring ∝ amount, <1 stable
   }
 
   // four-point crossfade weights for `order` over node positions [-1,0,1,2].
