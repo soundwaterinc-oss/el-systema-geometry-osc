@@ -436,7 +436,7 @@ export class NoiseEngine {
     const t = this.ctx.currentTime;
     if (!this.latched) this.drive *= Math.exp(-dt / 1.6);
     const level = this.latched ? 0.5 : (0.12 + this.drive * 0.55);   // always a floor of texture
-    this.exG.gain.setTargetAtTime(level * 0.5, t, 0.05);
+    this.exG.gain.setTargetAtTime(level * 2.5, t, 0.05);             // 5× the excitation into the resonator bank
     this.env = clamp(level, 0, 1);
     return { env: this.env, x: this.x, y: this.y };
   }
