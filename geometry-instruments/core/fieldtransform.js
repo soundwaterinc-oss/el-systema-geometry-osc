@@ -19,7 +19,7 @@ import { PHI, SILVER } from './tuning.js';
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 export const FOLD_TYPES = ['sin', 'tanh', 'bessel'];
 // operators that can be animated by a natural LFO, and the LFO menu itself
-export const FIELD_MOTION_TARGETS = ['rot', 'order', 'fold', 'shift', 'res'];
+export const FIELD_MOTION_TARGETS = ['rot', 'order', 'fold', 'shift', 'res', 'grain'];
 export const FIELD_LFOS = ['off', 'golden', 'lorenz', 'kuramoto_r', 'pink', 'gauss', 'bessel'];
 
 export class FieldTransform {
@@ -91,9 +91,25 @@ export class FieldTransform {
     this.resDamp.connect(this.resWet).connect(this.resOut);
     this.resDelay.delayTime.value = 1 / 160;
 
+    // ---- GRAIN: particle decomposition — chop the continuous field into a cloud
+    // of gaussian-windowed micro-grains emitted on Poisson (natural) intervals and
+    // scattered in time. Continuous → discrete particles (à la granular / Jelinek dust). ----
+    this.grainDry = G(); this.grainDry.gain.value = 1;
+    this.grainWet = G(); this.grainWet.gain.value = 0;
+    this.grainOut = G();
+    this.resOut.connect(this.grainDry).connect(this.grainOut);
+    this.grainV = [];
+    for (let i = 0; i < 8; i++) {                           // 8 grain voices (overlap = cloud)
+      const d = ctx.createDelay(0.08), g = G(); g.gain.value = 0;
+      this.resOut.connect(d).connect(g).connect(this.grainWet);
+      this.grainV.push({ d, g });
+    }
+    this.grainWet.connect(this.grainOut);
+    this._grNext = 0; this._grVi = 0;
+
     // ---- wet trim into output ----
     this.wet = G(); this.wet.gain.value = 0;               // mix (0 = layer bypassed)
-    this.resOut.connect(this.wet).connect(this.output);
+    this.grainOut.connect(this.wet).connect(this.output);
 
     // ---- stereo vectorscope taps (view the field as a vector) ----
     this.scopeSplit = ctx.createChannelSplitter(2);
@@ -103,11 +119,12 @@ export class FieldTransform {
     this.scopeSplit.connect(this.anL, 0); this.scopeSplit.connect(this.anR, 1);
 
     // ---- parameters (all default to identity / bypass) ----
-    this.p = { mix: 0, rot: 0, order: 0, fold: 0, shift: 0, shiftFreq: 0.25, res: 0, resTune: 0.4 };
+    this.p = { mix: 0, rot: 0, order: 0, fold: 0, shift: 0, shiftFreq: 0.25, res: 0, resTune: 0.4,
+               grn: 0, grnDens: 0.4, grnSize: 0.35, grnScat: 0.3 };
     this.foldType = 'sin';
     this.motion = { rot: { src: 'off', depth: 0 }, order: { src: 'off', depth: 0 },
                     fold: { src: 'off', depth: 0 }, shift: { src: 'off', depth: 0 },
-                    res: { src: 'off', depth: 0 } };
+                    res: { src: 'off', depth: 0 }, grain: { src: 'off', depth: 0 } };
     this.eff = { ...this.p };                               // last effective values (for UI/viz)
   }
 
@@ -188,6 +205,39 @@ export class FieldTransform {
     this.resWet.gain.setTargetAtTime(e.res, t, TC);
     this.resDry.gain.setTargetAtTime(1 - e.res * 0.7, t, TC);   // keep some dry through
     this.resFB.gain.setTargetAtTime(e.res * 0.88, t, TC);       // ring ∝ amount, <1 stable
+
+    // GRAIN: particle decomposition — dry/wet + schedule the grain cloud
+    e.grn = clamp(p.grn + this._mot('grain', lfos), 0, 1);
+    e.grnDens = clamp(p.grnDens, 0, 1); e.grnSize = clamp(p.grnSize, 0, 1); e.grnScat = clamp(p.grnScat, 0, 1);
+    this.grainDry.gain.setTargetAtTime(1 - e.grn, t, TC);
+    this.grainWet.gain.setTargetAtTime(e.grn * 1.8, t, TC);     // makeup: gating drops RMS
+    if (dt > 0 && e.grn > 0.001) this._scheduleGrains(t);
+    else this._grNext = t;                                      // hold when frozen / bypassed
+  }
+
+  // Emit gaussian-windowed micro-grains on Poisson intervals, scattered in time.
+  // Uses audio-clock lookahead so the cloud survives background-tab throttling.
+  _scheduleGrains(now) {
+    const la = 1.2, e = this.eff;
+    if (this._grNext < now) this._grNext = now;                // catch up (no burst after a gap)
+    const densHz = 3 + e.grnDens * 42;                         // 3 … 45 particles/s
+    const size = 0.01 + e.grnSize * 0.11;                      // 10 … 120 ms grains
+    const scat = e.grnScat * 0.05;                             // 0 … 50 ms time-scatter
+    let guard = 0;
+    while (this._grNext < now + la && guard++ < 600) {
+      const t0 = this._grNext;
+      if (Math.random() < 0.85) {                              // occasional dropout = sparser dust
+        const v = this.grainV[this._grVi]; this._grVi = (this._grVi + 1) % this.grainV.length;
+        const dur = size * (0.6 + Math.random() * 0.8);
+        const att = dur * 0.35, off = Math.random() * scat;
+        v.d.delayTime.setValueAtTime(off, t0);
+        v.g.gain.setValueAtTime(0, t0);
+        v.g.gain.linearRampToValueAtTime(0.9, t0 + att);       // gaussian-ish window
+        v.g.gain.linearRampToValueAtTime(0, t0 + dur);
+      }
+      const u = Math.max(1e-4, Math.random());                 // Poisson inter-particle interval
+      this._grNext += -Math.log(u) / densHz;
+    }
   }
 
   // four-point crossfade weights for `order` over node positions [-1,0,1,2].

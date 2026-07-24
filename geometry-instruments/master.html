@@ -576,6 +576,10 @@ const F_PARAMS=[
   {k:'shiftFreq',name:'SH ·f', min:0, max:1, step:0.02, fmt:v=>Math.round(18*Math.pow(1.618,v*7))+'Hz'},
   {k:'res',      name:'RES ∿', min:0, max:1, step:0.02, fmt:v=>v.toFixed(2)},
   {k:'resTune',  name:'RES ·f',min:0, max:1, step:0.02, fmt:v=>Math.round(40*Math.pow(1.618,v*6))+'Hz'},
+  {k:'grn',      name:'GRAIN ⁘',min:0,max:1, step:0.02, fmt:v=>v.toFixed(2)},
+  {k:'grnDens',  name:'G·dens',min:0, max:1, step:0.02, fmt:v=>Math.round(3+v*42)+'/s'},
+  {k:'grnSize',  name:'G·size',min:0, max:1, step:0.02, fmt:v=>Math.round((0.01+v*0.11)*1000)+'ms'},
+  {k:'grnScat',  name:'G·scat',min:0, max:1, step:0.02, fmt:v=>v.toFixed(2)},
 ];
 const fcellsEl=document.getElementById('fcells');
 const fParamCells=[], fMotCells={};
