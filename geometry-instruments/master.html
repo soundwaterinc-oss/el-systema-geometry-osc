@@ -126,6 +126,10 @@
   </div>
 </div>
 
+<!-- el-systema-field protocol (classic IIFE globals; inert until registered) -->
+<script src="./shared/el-systema-shapes.js"></script>
+<script src="./shared/el-systema-transport.js"></script>
+<script src="./shared/el-systema-control.js"></script>
 <script type="module">
 import { createEngine, ENGINE_TYPES } from './core/engines.js';
 import { ModMatrix, SOURCE_NAMES, OPERATORS, DEST_PARAMS } from './core/modmatrix.js';
@@ -640,6 +644,28 @@ draw();
 
 // expose for headless tests
 window.__master = { slots, matrix, field, captures, setPage, encTop, encMid, encBot, faderMove, btnTop, btnBot, transport, trackOp, trackCross, decodeRelative, makeSnapshot, applySnapshot, saveAll, loadAll, doCapture, scorePlay, scoreStop, get running(){return globalRunning;}, get autoPerform(){return autoPerform;}, get scoreTime(){return scoreTime;}, get scorePlaying(){return scorePlaying;} };
+
+// ============================ EL-SYSTEMA LIVE bridge ============================
+// Join the field (only with ?field / #field so the plain deployed page stays quiet).
+// 3 macros distil the instrument's core: A=明度/微分, B=空間/回転, C=粒子/共鳴 field.
+const FIELD_ON = /[?&#]field/.test(location.href);
+function elsysMacro(name, v){
+  v = clamp(+v, 0, 1);
+  if(name==='macro.a'){ for(const s of slots) s.base.shape1 = v; field.p.order = v*3-1; }          // brightness + ∂order
+  else if(name==='macro.b'){ for(const s of slots) s.base.spaceSpread = v; field.p.rot = v*2-1; }    // orbit spread + FIELD rotation
+  else if(name==='macro.c'){ field.p.mix = v; field.p.grn = v; field.p.res = v*0.6; }                // particle/resonance field
+  else if(name==='volume'){ masterGain.gain.setTargetAtTime(v, ctx.currentTime, 0.02); const mv=document.getElementById('mvol'); if(mv) mv.value=v; }
+}
+if(FIELD_ON && window.registerElSystemaInstrument){
+  window.registerElSystemaInstrument({
+    id:'geometry-osc', audioContext:ctx, outputNode:masterGain,
+    onPlay:()=>transport('play'), onStop:()=>transport('stop'),
+    onSetParam:(n,val)=>elsysMacro(n,val),
+    onLoadPreset:(p)=>applySnapshot(p),
+    onSnapshot:()=>makeSnapshot(),
+  });
+  oled('EL-SYSTEMA LIVE: field 接続 (macro A/B/C ＋ volume)');
+}
 </script>
 </body>
 </html>
