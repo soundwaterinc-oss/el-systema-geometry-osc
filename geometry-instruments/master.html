@@ -647,14 +647,14 @@ window.__master = { slots, matrix, field, captures, setPage, encTop, encMid, enc
 
 // ============================ EL-SYSTEMA LIVE bridge ============================
 // Join the field (only with ?field / #field so the plain deployed page stays quiet).
-// 3 macros distil the instrument's core: A=明度/微分, B=空間/回転, C=粒子/共鳴 field.
+// 3 macros distil the instrument's core: A=活性, B=明度/構造, C=空間/回転.
 const FIELD_ON = /[?&#]field/.test(location.href);
 function elsysMacro(name, v){
   v = clamp(+v, 0, 1);
-  if(name==='macro.a'){ for(const s of slots) s.base.shape1 = v; field.p.order = v*3-1; }          // brightness + ∂order
-  else if(name==='macro.b'){ for(const s of slots) s.base.spaceSpread = v; field.p.rot = v*2-1; }    // orbit spread + FIELD rotation
-  else if(name==='macro.c'){ field.p.mix = v; field.p.grn = v; field.p.res = v*0.6; }                // particle/resonance field
-  else if(name==='volume'){ masterGain.gain.setTargetAtTime(v, ctx.currentTime, 0.02); const mv=document.getElementById('mvol'); if(mv) mv.value=v; }
+  if(name==='macro.a'){ field.p.mix = v; field.p.grn = v; }                                          // field density / activity
+  else if(name==='macro.b'){ for(const s of slots) s.base.shape1 = v; field.p.order = v*3-1; field.p.res = v*0.6; } // brightness / structure
+  else if(name==='macro.c'){ for(const s of slots) s.base.spaceSpread = v; field.p.rot = v*2-1; }      // orbit spread / rotation
+  else if(name==='volume'){ masterGain.gain.setTargetAtTime(v*v, ctx.currentTime, 0.02); const mv=document.getElementById('mvol'); if(mv) mv.value=v*v; }
 }
 if(FIELD_ON && window.registerElSystemaInstrument){
   window.registerElSystemaInstrument({
