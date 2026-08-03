@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "build": "SITES_DEFAULT_DOCUMENT=geometry-instruments/master.html node sites-build.mjs",
     "dev": "npx serve . -l 3000",
     "start": "npx serve . -l 3000"
   }
